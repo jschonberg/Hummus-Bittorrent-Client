@@ -1,58 +1,36 @@
 """
 Objects:
     Manager()
-    Does: initializes other objects, updates tracker, listens for requests, establishes and manages peers.
-    Manages: peers, master array, scribes.
+    Does: initializes other objects, communicates with tracker, establishes and manages peers, manages view.
     
     Peer()
-    Does: Establishes remote connection with peer. 
-
-        LeechPeer()
-        Does: Gets needed blocks from remote peer
-
-        SeedPeer()
-        Does: Sends requested blocks to remote peer.
+    Does: Connets to remote peer, exchanges messages and data until connection dies, or one/both peers are finished with each other 
 
     MasterRecord()
-    Does: Thread safe record of what blocks/pieces of file(s) we already have. Interface to access/write btFile data to disk
-    Accepts: Metainfo() object, 
-
-        BTFile()
-        Does: Wrapper for FileIO to write, read, and verify byte-chunks of data to and from Disk
-        Should: Only be accesses through a MasterRecord() object, to ensure state of our progress is recorded properly
-
-    Listener()
-    Does: Waits for seed requests to come in on an open socket. Delegates requests back to Manager() when they come in, so that the Manager() may kick off a Peer to handle the request
-    Accepts: Reference to a Manager()
+    Does: Reads/Writes data to disk and tracks progress and state of data in thread_safe way
 
     View()
-    Does: Renders the download and upload progress of all files to the user
-    Accepts: Reference to a Manager()
+    Does: Renders the download and upload progress of all torrents to the user
 
-    Metainfo()
-    Does: Parsed, structured representation of a .torrent metainfo file
-    Accepts: metainfo .torrent file location
+Steps:
+1) Get metainfo file list from argv or, if None, ask the user for a metainfo file one at a time until done
+2) Get save location from argv, or if None, ask the user for a save location
+3) Create Mangers for each torrent
+    3.1 Manager parses torrent file
+    3.2 Manager reaches out to tracker, gets response, parses response
+    3.3 Manager creates MasterRecord to manage data and status/state
+    3.4 Manager starts initiator peers to go off and collect data
+        3.4.1 TODO: What does peer do and in what order?
+    3.5 TODO: More?
+4) Call listen() on it's own thread on an open socket port that will respond to seed requests
+5) Create and start View() on it's own thread to print program state at regular intervals
 
-Structure:
-<The basic idea here is that we do some initial initialization and create a manager, which itself kicks off some initialization.
-After this initialization phase, the manager only responds to requests from other objects, delegates work as necessary, and gets information from other objects and passes back to requesting object as necessary.>
+TODO: FINISH steps :)
 
 
-    __main__:
-        * Get metainfo file list from argv or, if None, ask the user for a metainfo file one at a time until done
-        * Get save location from argv, or if None, ask the user for a save location
-        * Create a Manager() that will, for each metainfo file:
-            - Create a Metainfo() object which will parse the .torrent file and structure its contents
-            - Create a MasterRecord() object which will scan the file system, figure out what parts of the file(s) have already been downloaded, and set up initial state to act as record keeper (for this .torrent) for rest of program session
-            - Register this MasterRecord in the Manager() registry, so our Manager() knows which files it's currently seeding/leeching
-        * Create and start() a Listener() on it's own thread on an open socket port that will respond to seed requests
-            NOTE: Make sure Listener() renders properly and avoids race conditions if Manager.start() has not been called yet
-        * Create and start() a View() on it's own thread so we can keep an eye on the system state
-            NOTE: Make sure View() renders properly and avoids race conditions if Manager.start() has not been called yet
-        * Manager().start() on it's own thread
 
-    __Manager().start()__:
-        * 
+
+====OLD=====
 
 Steps:
     Connect to tracker.
