@@ -17,7 +17,7 @@ class Manager(object):
 
         self.torrent_file = self.parseMetainfoFile(torrent_path)
         self.master_record = MasterRecord(self, self.torrent_file, self.DEST_PATH)
-        self._active_peers = [] #List of Peer() objects
+        self._active_peers = [] #Queue of active Peer() objects
         self._tracker_response = {}
 
         record_registry.put(self) 

@@ -1,4 +1,6 @@
 import socket
+from threading import Lock
+
 
 BLOCK_SIZE = 16384 #16KB
 
