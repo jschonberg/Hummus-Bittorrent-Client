@@ -9,6 +9,35 @@ def listen(port, manager):
     #TODO: I think this function needs to be able,generate peers, and then parse the handshake, so that it knows which manager to add this peer to?? Then it needs to hand the peer off to the manager in question
     #TODO: Once we connect to a peer, will future messages from them get routed to the right socket or will it battle with the .listen() method happening here? In other words is recieving specifically different than listening?
 
+#----
+#Utility Functions
+#----
+def connectToPeer(ip_address, port):
+    "Connect to peer at ip_address:port"
+    "Returns connected socket on success, None on failure"
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    except sock.error as msg:
+        sock = None
+        continue
+    try:
+        sock.connect((ip_address,port))
+    except socket.error as msg:
+        sock.close()
+        sock = None
+        continue
+
+    if sock is None:
+        print "Could not connect to peer at "
+              + ip_address + ":" + port
+    else:
+        print "Successfully connected to peer at "
+              + ip_address + ":" + port    
+
+    return sock
+
+
+
 class Manager(object):
     #----
     #Constants
@@ -170,7 +199,7 @@ class Peer(object):
         "Return True if last msg received from peer was <=2min ago"
         "Return false otherwise"
 
-    def execute(self, ip_address=None, port=None):
+    def execute(self):
         #TODO: Return reason for dying when stay_alive becomes false?
 
         if self.sock is not None: #Is a responder peer
@@ -187,18 +216,31 @@ class Peer(object):
     #----
     #Networking Functions
     #----
-    def connectToPeer(self):
-        "Open a socket connection with peer"
-
-    #TODO: Look at http://bit.ly/1uwLX2O for ex on how to do send,recv
     def send(self, bytes):
         "Send entirety of bytes to remote peer"
-        #TODO: Return values and exceptions thrown?
-        #TODO: NOte, we'll need to loop until completely sent, as networking spec doesn't guaruntee this on each send call
+        "Rasies RuntimeError if socket connection is broken"
+        total_sent = 0
+        while total_sent < len(bytes):
+            sent = self.sock(byes[total_sent:])
+            if sent == 0:
+                raise RuntimeError("Error: socket connect to peer:" + self._peer_id + " broken")
+            total_sent = total_sent + sent
 
-    def recv(self, length):
-        "Get length bytes from Peer, append to self.dataBuffer"
-        #TODO: Error handling, dead peers, return types, etc…
+
+    def recv(self, length=BLOCK_SIZE):
+        "Get length bytes from Peer"
+        "Returns bytestring. Raises RuntimeError if connection is broken"
+
+        chunks = []
+        bytes_recd = 0
+        while bytes_recd < length:
+            chunk = self.sock.recv(min(length - bytes_recd, 2048))
+            if chunk == '':
+                raise RuntimeError("Error: could not receive data from peer:" + self._peer_id + ". Socket connection broken")
+            chunks.append(chunk)
+            bytes_recd = bytes_recd + len(chunk)
+
+        return ''.join(chunks)
 
     #----
     #Messaging Functions
