@@ -142,19 +142,22 @@ class Peer(object):
     #Class Functions
     #----
     def __init__(self, master_record, peer_id, manager, sock=None):
-        self.stay_alive = True
-        self.shaken_hands = False
-        self.dataBuffer = []
+        self._stay_alive = True
+        self._shaken_hands = False
+        self._dataBuffer = []
+        self._last_msg_time = None
+        self._peer_id = peer_id #Unique id from tracker for remote peer
+
+        self._am_choking = True
+        self._am_interested = False
+        self._peer_choking = True
+        self._peer_interested = False
+
+        self.manager = manager #Reference to manager managing this peer
         self.master_record = master_record
         self.sock = sock
-        self.last_msg_time = None
-        self.peer_id = peer_id #Unique id from tracker for remote peer
-        self.manager = manager #Reference to manager managing this peer
 
-        self.am_choking = True
-        self.am_interested = False
-        self.peer_choking = True
-        self.peer_interested = False
+
     def __del__(self):
     def __enter__(self):
     def __exit__(self, type, value, traceback):
