@@ -1,3 +1,4 @@
+import logging
 import socket
 from threading import Lock
 import hashlib
@@ -30,10 +31,10 @@ def connectToPeer(ip_address, port):
         sock = None
 
     if sock is None:
-        print ("Could not connect to peer at "
-              + str(ip_address) + ":" + str(port))
+        logging.error("Could not connect to peer at "
+              + ip_address + ":" + str(port))
     else:
-        print ("Successfully connected to peer at "
+        logging.info("Successfully connected to peer at "
               + str(ip_address) + ":" + str(port))
 
     return sock
@@ -68,7 +69,7 @@ def constructHandshake(info_hash, self_peer_id):
     handshake_message = struct.pack('>i19s8x40s', pstrlen, pstr, reserved, (info_hash + peer_id))
 
     if len(handshake_message) is not 68:
-        print "Error: constructing handshake produced a string not 68 in length"
+        logging.error("Constructing handshake produced a string not 68 in length.")
         return None
     else:
         return handshake_message

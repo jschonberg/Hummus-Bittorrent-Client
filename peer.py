@@ -1,3 +1,4 @@
+import logging
 import socket
 import utilities
 
@@ -147,7 +148,7 @@ class Peer(object):
         if data is not 19:
             with self._alive_lock:
                 self._alive = False
-            print "Error: ill-formed handshake response from peer"
+            logging.error("Ill-formed handshake response from peer.")
             return None
 
         # receive the rest of the handshake (67 bytes)
@@ -159,19 +160,19 @@ class Peer(object):
         if handshake_response is None:
             with self._alive_lock:
                 self._alive = False
-            print "Error: Handshake response is invalid"
+            logging.error("Handshake response is invalid.")
             return None
 
         # verify response
         if handshake_response[0] != self.manager.getInfoHash():
             with self._alive_lock:
                 self._alive = False
-            print "Error: Could not complete handshake. Info hash from peer does not match"
+            logging.error("Could not complete handshake. Info hash from peer does not match.")
             return None
         if handshake_response[1] != self._peer_id:
             with self._alive_lock:
                 self._alive = False
-            print "Error: Could not complete handshake. Peer ID does not match"
+            logging.error("Could not complete handshake. Peer ID does not match.")
             return None
 
         self._shaken_hands = True
