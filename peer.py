@@ -1,4 +1,5 @@
 import socket
+import utilities
 
 class Peer(object):
     #----
@@ -55,8 +56,10 @@ class Peer(object):
             return self._alive
 
     def stayConnected():
-        "Return True if last msg received from peer was <=2min ago"
-        "Return false otherwise"
+        """
+        Return True if last msg received from peer was <=2min ago
+        Return false otherwise
+        """
         #TODO:Rename this and should be called by manager
         pass
 
@@ -64,7 +67,7 @@ class Peer(object):
         #TODO: Return reason for dying when alive becomes false?
 
         if self.sock is None: 
-            #initiator peer (from manager)
+            #initiator peer (from manager). connect to peer and shake hands.
             self.sock = utilities.connectToPeer()
             if self.sock is None:
                 #Could not create a connection, kill this peer
@@ -73,7 +76,7 @@ class Peer(object):
                 #TODO: Log cause of death
                 return
 
-            self.shakeHands() !!!
+            #TODO: self.shakeHands()
 
 
         assert self._shaken_hands is True
@@ -92,8 +95,10 @@ class Peer(object):
     #Networking Functions
     #----
     def send(self, bytes):
-        "Send entirety of bytes to remote peer"
-        "Raises RuntimeError if socket connection is broken"
+        """
+        Send entirety of bytes to remote peer
+        Raises RuntimeError if socket connection is broken
+        """
         total_sent = 0
         while total_sent < len(bytes):
             sent = self.sock(byes[total_sent:])
@@ -103,8 +108,10 @@ class Peer(object):
 
 
     def recv(self, length=BLOCK_SIZE):
-        "Get length bytes from Peer"
-        "Returns bytestring. Raises RuntimeError if connection is broken"
+        """
+        Get length bytes from Peer
+        Returns bytestring. Raises RuntimeError if connection is broken
+        """
 
         chunks = []
         bytes_recd = 0
@@ -121,15 +128,54 @@ class Peer(object):
     #Messaging Functions
     #----
     def parseMsgType(self, bytes):
-        "len(bytes) must == 5. "
-        "Parse and return (msg_length, msg_id)"
+        """
+        len(bytes) must == 5. 
+        Parse and return (msg_length, msg_id)
         pass
+        """
     def shakeHands(self):
-        try:
-            # self._shaken_hands = True
-            pass
-        except RuntimeError:
-            pass
+        # Sketch of steps (jake)
+
+        # Contruct the handshake
+        handshake_to_send = utilities.constructHandshake(self.manager.getInfoHash(), !!!SELF_PEER_ID!!!!! )
+
+        # send the handshake
+        self.send(handshake_to_send)
+
+        # receive the first byte of the response, make sure its an int of value 19
+        data = struct.unpack('>i',self.recv(1))
+        if data is not 19:
+            with self._alive_lock:
+                self._alive = False
+            print "Error: ill-formed handshake response from peer"
+            return None
+
+        # receive the rest of the handshake (67 bytes)
+        data = struct.pack('>i', 19)
+        data.append(self.recv(67))
+
+        # parse response
+        handshake_response = utilities.parseHandshake(data)
+        if handshake_response is None:
+            with self._alive_lock:
+                self._alive = False
+            print "Error: Handshake response is invalid"
+            return None
+
+        # verify response
+        if handshake_response[0] != self.manager.getInfoHash():
+            with self._alive_lock:
+                self._alive = False
+            print "Error: Could not complete handshake. Info hash from peer does not match"
+            return None
+        if handshake_response[1] != self._peer_id:
+            with self._alive_lock:
+                self._alive = False
+            print "Error: Could not complete handshake. Peer ID does not match"
+            return None
+
+        self._shaken_hands = True
+
     def sendKeepAlive(self):
         pass
     def recvKeepAlive(self):

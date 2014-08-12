@@ -29,24 +29,40 @@ class Manager(object):
     #Utility Functions
     #----
     def parseMetainfoFile(torrent_path):
-        "Takes in a path to a .torrent file, parses the bencoded data, and returns a properly formatted dictionary"
+        """
+        Takes in a path to a .torrent file, parses the bencoded data, and returns a properly formatted dictionary
+        """
     def createTrackerRequest(self):
-        "Returns string which is the GET request to the tracker"
+        """
+        Returns string which is the GET request to the tracker
+        """
     def parseTrackerResponse(raw_request):
-        "Parses raw_request and fills out self._tracker_response"
+        """
+        Parses raw_request and fills out self._tracker_response
+        """
     def peerCleanup(self):
-        "Goes through self._active_peers and removes any dead peers"
+        """
+        Goes through self._active_peers and removes any dead peers
+        """
 
     #----
     #Operational Functions
     #----
     def execute(self):
     def contactTracker(self):
-        "Formulate request, send request, parse response"
+        """
+        Formulate request, send request, parse response
+        """
     def finishDownload(self):
-        "Final cleanup on download, including rendering individual files from bytestream"
+        """
+        Final cleanup on download, including rendering individual files from bytestream
+        """
     def createPeer(self, ip_address, port, socket=None):
-        "Create a new peer, add it to _active_peers, and start its execution"
+        """
+        Create a new peer, add it to _active_peers, and start its execution
+        """
         #TODO return values, errors thrown, etc…
     def getInfoHash():
-        "Return info_hash for this torrent"
+        """
+        Return info_hash for this torrent
+        """

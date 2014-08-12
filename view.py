@@ -8,4 +8,6 @@ class View(object):
     #Printing Functions
     #----
     def printStatus():
-        "Query Manager and print current program state to STD_OUT"
+        """
+        Query Manager and print current program state to STD_OUT
+        """
