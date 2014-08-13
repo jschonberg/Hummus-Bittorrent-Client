@@ -7,6 +7,7 @@ import logging
 import socket
 from threading import Thread, Lock
 import hashlib
+import struct
 
 import hummus.utilities as utilities
 import hummus.bencode as bencode
@@ -18,20 +19,6 @@ address_lock = Lock()
 serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 serversocket.bind(('localhost', LOCALHOST_PORT))
 serversocket.listen(5)
-
-bencoded_info = u'd5:filesld6:lengthi764393e4:pathl89:029_7daystoeasymoneygetpaidtowriteabook_Sjhd Free Plr Mrr Article Download___________.exeeed6:lengthi291e4:pathl27:Distributed by Mininova.txteee4:name76:029_7daystoeasymoneygetpaidtowriteabook_Sjhd Free Plr Mrr Article Download_ 12:piece lengthi1048576e6:pieces20:/ZPl ‚k}³ôÃŸ–CA¼Ð 6e'
-
-info = [(u'files', 
-                        [
-                            [(u'length', 764393), 
-                             (u'path', [u'029_7daystoeasymoneygetpaidtowriteabook_Sjhd Free Plr Mrr Article Download___________.exe'])], 
-                            [(u'length', 291), 
-                             (u'path', [u'Distributed by Mininova.txt'])]
-                        ]
-                ), 
-                (u'name', u'029_7daystoeasymoneygetpaidtowriteabook_Sjhd Free Plr Mrr Article Download_ '), 
-                (u'piece length', 1048576), 
-                (u'pieces', u'/ZPl ‚k}³ôÃŸ–CA¼Ð 6')]
 
 def runServer():
     global clientsocket_lock, address_lock, serversocket
@@ -49,15 +36,34 @@ def tearDown():
     serversocket.close()
 
 class TestBencode(unittest.TestCase):
+    def setUp(self):
+        self.bencoded_info = b'd5:filesld6:lengthi764393e4:pathl89:029_7daystoeasymoneygetpaidtowriteabook_Sjhd Free Plr Mrr Article Download___________.exeeed6:lengthi291e4:pathl27:Distributed by Mininova.txteee4:name76:029_7daystoeasymoneygetpaidtowriteabook_Sjhd Free Plr Mrr Article Download_ 12:piece lengthi1048576e6:pieces20:/ZPl\xa0\x82\x0ck}\xb3\xf4\xc3\x9f\x96CA\xbc\xd0\t6e'
+
+        self.info = [(b'files', 
+                        [
+                            [(b'length', 764393), 
+                             (b'path', [b'029_7daystoeasymoneygetpaidtowriteabook_Sjhd Free Plr Mrr Article Download___________.exe'])], 
+                            [(b'length', 291), 
+                             (b'path', [b'Distributed by Mininova.txt'])]
+                        ]
+                ), 
+                (b'name', b'029_7daystoeasymoneygetpaidtowriteabook_Sjhd Free Plr Mrr Article Download_ '), 
+                (b'piece length', 1048576), 
+                (b'pieces', b'/ZPl\xa0\x82\x0ck}\xb3\xf4\xc3\x9f\x96CA\xbc\xd0\t6')]
     def test_bencode(self):
-        bencode_test = bencode.bencode(info)
-        eq_(bencode_test, bencoded_info)
+        bencode_test = bencode.bencode(self.info)
+        eq_(bencode_test, self.bencoded_info)
 
     def test_bdecode(self):
-        bdecode_test = bencode.bdecode(bencoded_info)
-        eq_(bdecode_test, info)
+        bdecode_test = bencode.bdecode(self.bencoded_info)
+        eq_(bdecode_test, self.info)
 
 class TestUtilities(unittest.TestCase):
+    def setUp(self):
+        self.info_hash = b'/ZPl\xa0\x82\x0ck}\xb3\xf4\xc3\x9f\x96CA\xbc\xd0\t6'
+        self.peer_id = u'-HU0010-0HyZeTecrY0m'.encode('utf-8')
+        self.preconstructed_handshake = struct.pack('>B19s8x40s', 19, 'BitTorrent protocol', self.info_hash + self.peer_id)
+
     def test_connectToPeer_valid(self):
         socket = utilities.connectToPeer('localhost', LOCALHOST_PORT)
         eq_(socket.getpeername(), ('127.0.0.1', LOCALHOST_PORT))
@@ -67,10 +73,12 @@ class TestUtilities(unittest.TestCase):
         eq_(socket, None)
 
     def test_constructHandshake(self):
-        pass
+        handshake = utilities.constructHandshake(self.info_hash, self.peer_id)
+        eq_(handshake, self.preconstructed_handshake)
 
     def test_parseHandshake(self):
-        pass
+        info_hash, peer_id = utilities.parseHandshake(self.preconstructed_handshake)
+        eq_((info_hash, peer_id), (self.info_hash, self.peer_id))
         
 # class TestCreatePeer(unittest.TestCase):
 #     def setUp(self):

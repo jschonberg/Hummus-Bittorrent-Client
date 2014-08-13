@@ -86,4 +86,4 @@ def _dechunk(chunks):
         for i in range(int(num)):
             line += chunks.pop()
         return line
-    raise "Invalid input!"
+    logging.error("Invalid input!")

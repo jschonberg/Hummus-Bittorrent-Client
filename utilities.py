@@ -42,18 +42,17 @@ def connectToPeer(ip_address, port):
 
 def constructHandshake(info_hash, self_peer_id):
     """
-    Accepts info_hash, self_peer_id
+    Accepts info_hash, self_peer_id (pre-encoded in utf-8)
     Returns packed handshake bytestring ready for sending over the  network on success, None on failure
     """
 
     #Per Bittorrent spec, handshake: <pstrlen><pstr><reserved><info_hash><peer_id>
-    pstrlen = '\x13'
+    pstrlen = 19
     pstr = 'BitTorrent protocol'
-    reserved = '\x00\x00\x00\x00\x00\x00\x00\x00'
     info_hash = info_hash
     peer_id = self_peer_id
 
-    handshake_message = struct.pack('>i19s8x40s', pstrlen, pstr, reserved, (info_hash + peer_id))
+    handshake_message = struct.pack('>B19s8x40s', pstrlen, pstr, info_hash + peer_id)
 
     if len(handshake_message) is not 68:
         logging.error("Constructing handshake produced a string not 68 in length.")
@@ -67,29 +66,31 @@ def parseHandshake(handshake_message):
     Accepts info as python data structure format of info dictionary
     Returns (info_hash, peer_id) tuple on success.  None on failure
     """
+    # import pdb; pdb.set_trace()
 
-    if len(handshake_message) is not 68:
+    if len(handshake_message) != 68:
+        logging.error('Received handshake length is not 68.')
         return None
 
-    unpacked = unpack('>i19s8x40s', handshake_message)
+    unpacked = struct.unpack('>B19s8x40s', handshake_message)
 
     pstrlen = unpacked[0]
-    if pstrlen is not 19:
+    if pstrlen != 19:
+        logging.error('Received handshake prstrlen is not 19.')
         return None
 
     pstr = unpacked[1]
-    if pstr is not 'BitTorrent protocol':
+    if pstr != 'BitTorrent protocol':
+        logging.error('''Received handshake pstr is not 'BitTorrent protocol'.''')
         return None
 
-    reserved = unpacked[2]
-    if len(reserved) is not 8:
+    if len(unpacked[2]) != 40:
+        #This is sort of pointless because we only told struct to unpack the characters UP to the 40th string charater. So it'll notice if the bytestring is shorter than requested but not if longer, since it'll be cut off. Can we do a check on the len of handshake_message vs. unpacked (above) instead?
+        logging.error('''Length of received handshake's info_hash + peer_id is not 40.''')
         return None
 
-    if len(unpacked[3]) is not 40:
-        return None
-
-    info_hash = unpacked[3][0:20]
-    peer_id = unpacked[3][20:]
+    info_hash = unpacked[2][0:20]
+    peer_id = unpacked[2][20:]
 
     return (info_hash, peer_id)
 
