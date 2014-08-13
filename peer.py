@@ -52,6 +52,10 @@ class Peer(object):
     #----
     #Utility Functions
     #----
+    def die():
+        with self._alive_lock:
+            self._alive = False
+
     def isAlive():
         with self._alive_lock:
             return self._alive
@@ -65,33 +69,34 @@ class Peer(object):
         pass
 
     def execute(self):
-        #TODO: Return reason for dying when alive becomes false?
-
         if self.sock is None: 
             #initiator peer (from manager). connect to peer and shake hands.
             self.sock = utilities.connectToPeer()
             if self.sock is None:
                 #Could not create a connection, kill this peer
-                with self._alive_lock:
-                    self._alive = False
-                #TODO: Log cause of death
-                return
+                self.die()
+                print "Error: couldn't connect to peer"
+                return None
 
-            #TODO: self.shakeHands()
+            assert (self._ip_address, self._port) == self.sock.getpeername()
+
+            self.shakeHands()
+            if self.isAlive() is False or self._shaken_hands is False:
+                return None
+
+        #Send bitfield message
+   
+   #LOOP
+        #Send unchoke message if they're choked
+
+        #Send have messages for all peices I have
+
+        #Go through all pieces they told us they have, send a request for all the ones we still need
 
 
-        assert self._shaken_hands is True
-        assert (self._ip_address, self._port) == self.sock.getpeername()
-        #Handshake done, move on…
-
-        while(self._alive):
-            #Start sending and receiving messages with remote peer
-            #TODO: What is the logic here? Alternate between sending messages/requests, and parsing messages/requests from peer? Alternative is some kind of action Queue and have the two things work in parallel. That sounds complicated though…
-
-            #First step of receiving is to just receive enough data to know the length and message type of incoming, then pass along to proper message function to self.recv rest
-            # self.parseMsgType(self.recv(5))
 
 
+        #Send a keep alive message
     #----
     #Networking Functions
     #----
@@ -146,8 +151,7 @@ class Peer(object):
         # receive the first byte of the response, make sure its an int of value 19
         data = struct.unpack('>i',self.recv(1))
         if data is not 19:
-            with self._alive_lock:
-                self._alive = False
+            self.die()
             logging.error("Ill-formed handshake response from peer.")
             return None
 
@@ -158,20 +162,17 @@ class Peer(object):
         # parse response
         handshake_response = utilities.parseHandshake(data)
         if handshake_response is None:
-            with self._alive_lock:
-                self._alive = False
+            self.die()
             logging.error("Handshake response is invalid.")
             return None
 
         # verify response
         if handshake_response[0] != self.manager.getInfoHash():
-            with self._alive_lock:
-                self._alive = False
+            self.die()
             logging.error("Could not complete handshake. Info hash from peer does not match.")
             return None
         if handshake_response[1] != self._peer_id:
-            with self._alive_lock:
-                self._alive = False
+            self.die()
             logging.error("Could not complete handshake. Peer ID does not match.")
             return None
 
