@@ -11,6 +11,7 @@ def listen(port, manager):
     If a connection request comes in, ceate a socket ask manager to create responder Peer to manage
     Should be executed on it's own thread or will block program execution
     """
+    pass
     #TODO: I think this function needs to be able,generate peers, and then parse the handshake, so that it knows which manager to add this peer to?? Then it needs to hand the peer off to the manager in question
     #TODO: Once we connect to a peer, will future messages from them get routed to the right socket or will it battle with the .listen() method happening here? In other words is recieving specifically different than listening?
 
@@ -38,20 +39,6 @@ def connectToPeer(ip_address, port):
               + str(ip_address) + ":" + str(port))
 
     return sock
-
-def constructInfoHash(info):
-    """
-    Accepts an info dictionary formatted as a python list of tuples  
-    Returns sha1 hash of bencoded dictionary as byte string
-    """
-    encoded_info = bencode.bencode(info)
-    if encoded_info is '':
-        return None
-    info_hash = hashlib.sha1()
-    info_hash.update(encoded_info)
-    assert len(info_hash.digest()) == 20
-    return info_hash.digest()
-
 
 def constructHandshake(info_hash, self_peer_id):
     """
