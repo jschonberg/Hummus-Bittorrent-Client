@@ -2,6 +2,7 @@ import math
 import io
 import os
 import socket
+import logging
 
 from view import View
 from peer import Peer

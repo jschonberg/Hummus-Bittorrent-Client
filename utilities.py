@@ -6,6 +6,14 @@ import struct
 
 BLOCK_SIZE = 16384 #16KB
 
+class HummusError(RuntimeError):
+    def __init__(self, reason):
+        self.reason = reason
+    def __repr__(self):
+        return str(reason)
+    def __str__(self):
+        return str(reason)
+
 def listen(port, manager):
     """Start listening for incoming connections on port
     If a connection request comes in, ceate a socket ask manager to create responder Peer to manage

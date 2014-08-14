@@ -39,13 +39,25 @@ class MasterRecord(object):
     def isPieceNeeded(self, piece_index):
         "Returns True if this piece is needed, False otherwise"
     def getNeededPieces(self):
-        "Returns a list of piece_indices that are still needed"
+        """
+        Returns a list of piece_indices that are still needed
+        Returns an empty list if no pieces are needed
+        """
+    def getNeededBlocks(self, piece_index):
+        """
+        Returns a list of block indices for all blocks needed from piece_index
+        Returns an empty list if no blocks are needed
+        """
     def isPieceCompleted(self, piece_index):
         "Returns True if this piece is completed, false otherwise"
     def getCompletedPieces(self):
         "Returns a list of piece_indices that have been completed"
     def isPieceActive(self, piece_index):
         "Returns True if this piece is active, false otherwise"
+    def makePieceActive(self, piece_index):
+        """
+        Set piece_index as active. Throws HummusError if piece is already active
+        """
     def getActivePieces(self):
         "Returns a list of piece_indices that are active"
     def saveData(self, piece_index, begin_offset, bytes):
