@@ -1,5 +1,6 @@
 import logging
 import socket
+import time
 import utilities
 
 class Peer(object):
@@ -77,6 +78,10 @@ class Peer(object):
         with self._alive_lock:
             return self._alive
 
+    def isKeepAliveMsg(chunk):
+        (data,) = struct.unpack('>i', chunk)
+        return data == 0
+
     def stayConnected():
         """
         Return True if last msg received from peer was <=2min ago
@@ -92,7 +97,7 @@ class Peer(object):
         """
         for piece_id in self._pieces_peer_has:
             if manager.master_record.isPieceNeeded(piece_id):
-                return True;
+                return True
         return False
 
     def execute(self):
@@ -102,24 +107,26 @@ class Peer(object):
             if self.sock == None:
                 #Could not create a connection, kill this peer
                 self.die()
-                print "Error: couldn't connect to peer"
+                logging.error("Couldn't connect to peer")
                 return None
 
             assert (self._ip_address, self._port) == self.sock.getpeername()
 
             self.shakeHands()
             if self.isAlive() == False or self._shaken_hands == False:
+                self.die()
+                logging.error("Couldn't shake hands")
                 return None
 
         self.sock.settimeout(3)
         self.sendBitfield()
         
-        while(True):
+        while True:
             #Unchoke them
             if(self._am_choking): self.sendUnchoke()
 
             #Send them what pieces we have
-            if(self._peer_interested) self.sendHaveMsgs()
+            if(self._peer_interested): self.sendHaveMsgs()
 
             #Determine if we're interested. Update peer if interest state changes
             if self.interestedInPeer():
@@ -132,24 +139,28 @@ class Peer(object):
                     self._am_interested = False
 
             #Send out requests for needed blocks
-            if not self._peer_choking:
+            if not self._peer_choking and self._am_interested:
                 self.sendRequestMsgs()
 
             try:
                 max_msgs = 50
                 for x in range(max_msgs):
-                    chunk = self.recv(5)
-                    (msg_id,msg_length) = self.parseMsgType(chunk)
-                    self._recv_dispatch[msg_id](msg_length)
+                    chunk = self.recv(4)
+                    if isKeepAliveMsg(chunk):
+                        self._recv_dispatch[KEEPALIVE_MSGID]()
+                    else:
+                        chunk += self.recv(1)
+                        (msg_id,msg_length) = self.parseMsgType(chunk)
+                        self._recv_dispatch[msg_id](msg_length)
             except timeout:
                 logging.info("Peer timed out")
             except HummusError as e:
                 self.die()
-                logging.error(e.__str__())
+                logging.error(str(e))
                 return None
 
             #Send a keep alive message
-            self.sendKeepAlive()
+            if self.isAlive(): self.sendKeepAlive()
 
     #----
     #Networking Functions
@@ -196,28 +207,42 @@ class Peer(object):
         pass
 
     def shakeHands(self):
-        # Sketch of steps (jake)
-
         # Contruct the handshake
-        handshake_to_send = utilities.constructHandshake(self.manager.getInfoHash(), !!!SELF_PEER_ID!!!!! )
+        handshake_to_send = utilities.constructHandshake(self.manager.getInfoHash(), !!!utilities.SELF_PEER_ID!!!!! )
 
         # send the handshake
-        self.send(handshake_to_send)
+        try:
+            self.send(handshake_to_send)
+        except HummusError as e:
+            self.die()
+            logging.error(str(e))
+            return None
 
         # receive the first byte of the response, make sure its an int of value 19
-        data = struct.unpack('>i',self.recv(1))
+        try:
+            (data,) = struct.unpack('>B',self.recv(1))
+        except HummusError as e:
+            self.die()
+            logging.error(str(e))
+            return None
+
         if data != 19:
             self.die()
             logging.error("Ill-formed handshake response from peer.")
             return None
 
         # receive the rest of the handshake (67 bytes)
-        data = struct.pack('>i', 19)
-        data.append(self.recv(67))
+        data = struct.pack('>B', 19)
+        try:
+            data.append(self.recv(67))
+        except HummusError as e:
+            self.die()
+            logging.error(str(e))
+            return None
 
         # parse response
         handshake_response = utilities.parseHandshake(data)
-        if handshake_response != None:
+        if handshake_response == None:
             self.die()
             logging.error("Handshake response is invalid.")
             return None
@@ -274,18 +299,38 @@ class Peer(object):
 
 
     #====Receiving messages
-    def recvKeepAlive(self, length=None):
-        pass
+    def recvKeepAlive(self):
+        """"keep-alive: <len=0000>"""
+        self._last_msg_time = time.time()
+
     def recvChoke(self, length=None):
-        pass
+        """choke: <len=0001><id=0>"""
+        self._peer_choking = True
+
     def recvUnchoke(self, length=None):
-        pass
+        """unchoke: <len=0001><id=1>"""
+        self._peer_choking = False
+
     def recvInterested(self, length=None):
-        pass
+        """interested: <len=0001><id=2>"""
+        self._peer_interested = True
+
     def recvNotInterested(self, length=None):
-        pass
+        """not interested: <len=0001><id=3>"""
+        self._peer_interested = False
+
     def recvHave(self, length=None):
-        pass
+        """have: <len=0005><id=4><piece index>"""
+        if length != 5:
+            raise HummusError("\"Have\" message does not have the proper length")
+
+        chunk = self.recv(4)
+        (piece_index,) = struct.unpack('>i',chunk)
+        assert piece_index >= 0
+        assert piece_index < self.master_record.numPieces()
+        self._pieces_peer_has.add(piece_index)
+
+
     def recvBitfield(self, length):
         pass
     def recvRequest(self, length=None):

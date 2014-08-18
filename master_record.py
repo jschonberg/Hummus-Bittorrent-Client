@@ -15,7 +15,7 @@ class MasterRecord(object):
         #blocks[index] contains staged, but not yet written bytes
         blocks = [bytearray()] * math.ceil(self.torrent_file.piece_length / BLOCK_SIZE) #Staged block data to be written to disk
         self._statusRecord = [{"status" : "needed",
-                              "blocks" : blocks}] * self.torrent_file.pieces 
+                              "blocks" : blocks}] * self.numPieces() 
         self._byteFile = self.openFile()
     def __del__(self):
     def __enter__(self):
@@ -24,6 +24,8 @@ class MasterRecord(object):
     #----
     #Utility Functions
     #----
+    def numPieces():
+        """Returns the number of pieces in this torrent"""
     def openFile(self):
         "Open a file at self.dest_path to download to."
         "If file already exists then evaluate validity with SHA1 hash and initialize record"
