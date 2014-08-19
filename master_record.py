@@ -48,11 +48,6 @@ class MasterRecord(object):
         Returns a list of piece_indices that are still needed
         Returns an empty list if no pieces are needed
         """
-    def getNeededBlocks(self, piece_index):
-        """
-        Returns a list of block indices for all blocks needed from piece_index
-        Returns an empty list if no blocks are needed
-        """
     def isPieceCompleted(self, piece_index):
         "Returns True if this piece is completed, false otherwise"
     def getCompletedPieces(self):

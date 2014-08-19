@@ -5,7 +5,7 @@ import hashlib
 import struct
 
 BLOCK_SIZE = 16384 #16KB
-SELF_PEER_ID = 
+SELF_PEER_ID = '-HU0010-0HyZeTecrY0m'
 
 class HummusError(RuntimeError):
     def __init__(self, reason):

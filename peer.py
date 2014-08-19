@@ -5,7 +5,8 @@ import utilities
 from utilities import HummusError
 import bitstring
 
-KILOBYTE = 1024
+KILOBYTE = 1024 #Bytes in a KB
+BLOCKSIZE = 16 * KILOBYTE
 
 class Peer(object):
     #----
@@ -359,14 +360,14 @@ class Peer(object):
 
         if self._peer_choking or self._am_choking:
             logging.info("Ignoring Request due to choking")
-            return
+            return None
         if self._peer_interested == False:
             logging.info("Ignoring Request due to uninterested peer")
-            return
+            return None
 
         if self.master_record.isPieceCompleted(index) == False:
             logging.info("Don't have piece requested by peer")
-            return
+            return None
 
         if index >= self.master_record.numPieces():
             raise HummusError("Index from Request is greater than number of pieces")
@@ -386,4 +387,51 @@ class Peer(object):
         self.send(chunk)
 
     def recvPiece(self, length):
-        pass
+        """piece: <len=0009+X><id=7><index><begin><block>"""
+        if length <= 9:
+            raise HummusError("Piece request length is not greater than 9")
+
+        chunk = self.recv(length - 1)
+        stuct_param = '>2i%sB' % (length - 9)
+        (index, begin_byte, bytes) = struct.unpack(struct_param, chunk)
+
+        if self._am_choking:
+            logging.info("Ignoring Piece message due to choking")
+            return None
+        if self._am_interested == False:
+            logging.info("Ignoring Piece message because uninterested")
+            return None
+
+        starting_byte_index = self.manager.torrent_file.piece_length * index
+        total_length = starting_byte_index + begin_byte + len(bytes)
+        if total_length > self.master_record.totalSizeInBytes():
+            raise HummusError("Received " + str(len(bytes)) + " bytes, starting at byte " + str(starting_byte_index + begin_byte) + " which is greater than the total bytes in the file of " + str(self.master_record.totalSizeInBytes()))
+
+        #If the bytes reach to the end of the file, we need to keep them all. Otherwise, we need to slice off the remnant bytes.
+        blocks = len(bytes) // BLOCKSIZE
+        if total_length == self.master_record.totalSizeInBytes():
+            blocks = blocks + 1
+        else:
+            bytes = bytes[:(blocks * BLOCKSIZE)]
+
+        master_record.saveData(index, begin_byte, bytes)
+
+        for block in range(blocks):
+            self._pending_requests[index][begin_byte // BLOCKSIZE + block] == False
+
+        if self.master_record.isPieceNeeded(index) == False:
+            self._actively_held_pieces.remove(index)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
