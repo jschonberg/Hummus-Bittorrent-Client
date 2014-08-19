@@ -2,6 +2,10 @@ import logging
 import socket
 import time
 import utilities
+from utilities import HummusError
+import bitstring
+
+KILOBYTE = 1024
 
 class Peer(object):
     #----
@@ -138,7 +142,7 @@ class Peer(object):
                     self.sendNotInterested()
                     self._am_interested = False
 
-            #Send out requests for needed blocks
+            #Send out requesteds for needed blocks
             if not self._peer_choking and self._am_interested:
                 self.sendRequestMsgs()
 
@@ -156,7 +160,7 @@ class Peer(object):
                 logging.info("Peer timed out")
             except HummusError as e:
                 self.die()
-                logging.error(str(e))
+                logging.info("PE:" + str(e))
                 return None
 
             #Send a keep alive message
@@ -330,10 +334,56 @@ class Peer(object):
         assert piece_index < self.master_record.numPieces()
         self._pieces_peer_has.add(piece_index)
 
-
     def recvBitfield(self, length):
-        pass
+        """bitfield: <len=0001+X><id=5><bitfield>"""
+        if (length - 1) < self.master_record.numPieces():
+            raise HummusError("\"Bitfield\" length is less than number of total pieces")
+
+        chunk = self.recv(length)
+        bits = bitstring.BitArray(bytes=chunk)
+        index = 0
+        for bit in bits:
+            if bit == 1:
+                if index >= self.master_record.numPieces():
+                    raise HummusError("Piece index in bitstring greater than total number of pieces")
+                self._pieces_peer_has.add(index)
+            index = index + 1
+
     def recvRequest(self, length=None):
-        pass
+        """request: <len=0013><id=6><index><begin><length>"""
+        if length != 13:
+            raise HummusError("\"Request\" length is not 13")
+
+        chunk = self.recv(12)
+        (index, begin_byte, byte_length) = struct.unpack('>3i')
+
+        if self._peer_choking or self._am_choking:
+            logging.info("Ignoring Request due to choking")
+            return
+        if self._peer_interested == False:
+            logging.info("Ignoring Request due to uninterested peer")
+            return
+
+        if self.master_record.isPieceCompleted(index) == False:
+            logging.info("Don't have piece requested by peer")
+            return
+
+        if index >= self.master_record.numPieces():
+            raise HummusError("Index from Request is greater than number of pieces")
+
+        if byte_length > 32*KILOBYTE:
+            raise HummusError("Requested bytes is greater than 32KB")
+
+        starting_byte_index = self.manager.torrent_file.piece_length * index
+        if starting_byte_index + begin_byte + byte_length > self.master_record.totalSizeInBytes():
+            raise HummusError("Requested " + str(byte_length) + " bytes, starting at byte " + str(starting_byte_index + begin_byte) + " which is greater than the total bytes in the file of " + str(self.master_record.totalSizeInBytes()))
+
+        chunk = self.master_record.readData(index, begin_byte, byte_length)
+        if chunk == None:
+            raise HummusError("Could not read bytes from master record")
+        assert length(chunk) == byte_length
+
+        self.send(chunk)
+
     def recvPiece(self, length):
         pass

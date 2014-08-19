@@ -24,6 +24,9 @@ class MasterRecord(object):
     #----
     #Utility Functions
     #----
+    def totalSizeInBytes():
+        #Return self.totalBytes
+        """Returns the number of bytes in this torrent"""
     def numPieces():
         """Returns the number of pieces in this torrent"""
     def openFile(self):
@@ -69,4 +72,5 @@ class MasterRecord(object):
         #TODO: Which errors are thrown and what are return values?
     def readData(self, piece_index, begin_offset, length):
         "Read length bytes from byteFile beginning from piece at piece_index and data starting at begin_offset"
+        "Return bytes or None if there is an error"
         #TODO: Which errors are thrown and what are return values?
