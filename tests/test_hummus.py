@@ -87,10 +87,30 @@ class TestPeerMethods(unittest.TestCase):
     # @patch('hummus.manager.Manager')
     def setUp(self):
         self.mock_manager = Mock()
+        # self.master_record = Mock()
+        # self.mock_manager.master_record = self.master_record
+        # self.master_record.isPieceNeeded.return_value = True
         # local_peer = Peer(mock_manager, '-HU0010-hZNIBCmgrY5Y', 'localhost', LOCALHOST_PORT)
         self.local_peer = Peer(self.mock_manager, '-HU0010-0HyZeTecrY0m', 'localhost', LOCALHOST_PORT)
         self.remote_peer = Peer(self.mock_manager, '-HU0010-0HyZeTecrY0m', 'localhost', REMOTEHOST_PORT)
 
     def test_isAlive(self):
         ok_(self.local_peer.isAlive(), True)
+
+    # self.master_record.isPieceNeeded.called returns true/false if called. (callcount)
+    # can give side_effects a dict instead of a list.
+    # patch = MagicMock, not Mock
+    # @patch('peer.socket')
+    # def test_socket_recv(self, socket):
+    #     socket.recv.return_value = "Blah"
+
+    # def tearDown(self):
+    #     self.mock_manager.stop()
+
+
+
+
+
+
+
 
