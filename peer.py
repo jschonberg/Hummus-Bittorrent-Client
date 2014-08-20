@@ -1,5 +1,6 @@
 import logging
 import socket
+from threading import Lock
 import time
 import utilities
 from utilities import HummusError
@@ -183,7 +184,7 @@ class Peer(object):
             total_sent = total_sent + sent
 
 
-    def recv(self, length=BLOCK_SIZE):
+    def recv(self, length=BLOCKSIZE):
         """
         Get length bytes from Peer
         Returns bytestring of len length. Raises HummusError if connection is broken
@@ -213,7 +214,7 @@ class Peer(object):
 
     def shakeHands(self):
         # Contruct the handshake
-        handshake_to_send = utilities.constructHandshake(self.manager.getInfoHash(), !!!utilities.SELF_PEER_ID!!!!! )
+        handshake_to_send = utilities.constructHandshake(self.manager.getInfoHash(), utilities.SELF_PEER_ID)
 
         # send the handshake
         try:

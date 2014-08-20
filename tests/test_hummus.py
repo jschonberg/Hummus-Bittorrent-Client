@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import unittest
-from nose.tools import eq_
+from nose.tools import eq_, ok_
+from mock import patch, Mock
 import logging
 
 import socket
@@ -11,24 +12,26 @@ import struct
 
 import hummus.utilities as utilities
 import hummus.bencode as bencode
+from hummus.peer import Peer
 
 INVALID_PORT = 6889
 LOCALHOST_PORT = 6885
+REMOTEHOST_PORT = 6886
 clientsocket_lock = Lock()
 address_lock = Lock()
 serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 serversocket.bind(('localhost', LOCALHOST_PORT))
 serversocket.listen(5)
 
-def runServer():
-    global clientsocket_lock, address_lock, serversocket
+def runServer(clientsocket_lock, address_lock, serversocket):
     with clientsocket_lock:
         with address_lock:
             (clientsocket, address) = serversocket.accept()
 
 def setUp():
     logging.basicConfig(level=logging.INFO)
-    t = Thread(target=runServer)
+
+    t = Thread(target=runServer, args=(clientsocket_lock, address_lock, serversocket))
     t.daemon = True
     t.start()
 
@@ -80,22 +83,14 @@ class TestUtilities(unittest.TestCase):
         info_hash, peer_id = utilities.parseHandshake(self.preconstructed_handshake)
         eq_((info_hash, peer_id), (self.info_hash, self.peer_id))
         
-# class TestCreatePeer(unittest.TestCase):
-#     def setUp(self):
-#         self.manager = {}
-#     def test_create_peer(self):
-#         peer = Peer(peer_id, self.manager)
+class TestPeerMethods(unittest.TestCase):
+    # @patch('hummus.manager.Manager')
+    def setUp(self):
+        mock_manager = Mock()
+        # local_peer = Peer(mock_manager, '-HU0010-hZNIBCmgrY5Y', 'localhost', LOCALHOST_PORT)
+        local_peer = Peer(mock_manager, '-HU0010-0HyZeTecrY0m', 'localhost', LOCALHOST_PORT)
+        remote_peer = Peer(mock_manager, '-HU0010-0HyZeTecrY0m', 'localhost', REMOTEHOST_PORT)
 
-# class TestPeerMethods(unittest.TestCase):
-#     def setUp(self):
-#         test_peer1 = Peer()
-#         test_peer2 = Peer()
-
-#     def test_send(self):
-#         class TestSocket(object):
-#             def __init__(self):
-#         eq_()
-#     def test_recv(self):
-
-#         eq_()
+    def test_isAlive(self):
+        ok_(local_peer.isAlive(), True)
 
