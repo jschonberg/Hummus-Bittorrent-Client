@@ -1,4 +1,5 @@
 import logging
+import math
 import socket
 import time
 import utilities
@@ -10,7 +11,7 @@ BLOCKSIZE = 16 * KILOBYTE
 
 class Peer(object):
     #----
-    #MSGID Constants
+    #Constants
     #----
     KEEPALIVE_MSGID = -1
     CHOKE_MSGID = 0
@@ -23,6 +24,8 @@ class Peer(object):
     PIECE_MSGID = 7
     CANCEL_MSGID = 8
     PORT_MSGID = 9
+
+    MAX_PENDING = 20  #By convention we don't want more than 20 pending requests at a time
 
     #----
     #Class Functions
@@ -38,27 +41,27 @@ class Peer(object):
         self._ip_address = ip_address
         self._port = port
         self._pieces_peer_has = set()
-        self._pending_requests = {} #{piece_index : [true/false]*num_blocks_per_piece}
         self._actively_held_pieces = set() #piece_indices of pieces we have marked as active in master record
+
+        for index in range(manager.master_record.numPieces()):
+            filesize = self.manager.master_record.totalSizeInBytes()
+            piecesize = self.manager.torrent_file.piece_length
+            if ((index == manager.master_record.numPieces() - 1) and
+                (filesize % piecesize != 0)):
+                num_blocks = math.ceil(filesize % piecesize,BLOCKSIZE)
+            else:
+                assert piecesize % BLOCKSIZE == 0
+                num_blocks = piecesize // BLOCKSIZE
+            self._pending_requests.add({index : [False]*num_blocks})    
+        assert len(self._pending_requests) == self.manager.master_record.numPieces()
 
         self._am_choking = True
         self._am_interested = False
         self._peer_choking = True
         self._peer_interested = False
 
-        self._recv_dispatch = {
-            KEEPALIVE_MSGID : recvKeepAlive,
-            CHOKE_MSGID : recvChoke,
-            UNCHOKE_MSGID : recvUnchoke,
-            INTERESTED_MSGID : recvInterested,
-            NOTINTERESTED_MSGID : recvNotInterested,
-            HAVE_MSGID : recvHave,
-            BITFIELD_MSGID : recvBitfield,
-            REQUEST_MSGID : recvRequest,
-            PIECE_MSGID : recvPiece,
-        }
-
         self.manager = manager #Reference to manager managing this peer
+        self.master_record = manager.master_record
         self.sock = sock
 
 
@@ -101,11 +104,32 @@ class Peer(object):
         Return False otherwise
         """
         for piece_id in self._pieces_peer_has:
-            if manager.master_record.isPieceNeeded(piece_id):
+            if self.master_record.isPieceNeeded(piece_id):
                 return True
         return False
 
+    def getNumPendingRequests():
+        count = 0
+        for piece in self._pending_requests:
+            for block in self._pending_requests[piece]:
+                if self._pending_requests[piece][block] == True: 
+                    count = count + 1
+
+        return count
+
     def execute(self):
+        self._recv_dispatch = {
+            KEEPALIVE_MSGID : recvKeepAlive,
+            CHOKE_MSGID : recvChoke,
+            UNCHOKE_MSGID : recvUnchoke,
+            INTERESTED_MSGID : recvInterested,
+            NOTINTERESTED_MSGID : recvNotInterested,
+            HAVE_MSGID : recvHave,
+            BITFIELD_MSGID : recvBitfield,
+            REQUEST_MSGID : recvRequest,
+            PIECE_MSGID : recvPiece,
+        }
+
         if self.sock == None: 
             #initiator peer (from manager). connect to peer and shake hands.
             self.sock = utilities.connectToPeer()
@@ -155,7 +179,7 @@ class Peer(object):
                         self._recv_dispatch[KEEPALIVE_MSGID]()
                     else:
                         chunk += self.recv(1)
-                        (msg_id,msg_length) = self.parseMsgType(chunk)
+                        (msg_id, msg_length) = self.parseMsgType(chunk)
                         self._recv_dispatch[msg_id](msg_length)
             except timeout:
                 logging.info("Peer timed out")
@@ -208,8 +232,24 @@ class Peer(object):
         Parse and return (msg_id,msg_length)
         Throws HummusError if can't determine valid message type or length is nonsensical
         """
-        assert len(bytes) == 5
-        pass
+        if len(bytes) != 5:
+            except HummusError("Message type not readable. Length is more than 5 bytes")
+
+        (msg_length, msg_id) = struct.unpack('>iB',bytes[0:4], bytes[4])
+        if ((msg_id != CHOKE_MSGID) or 
+            (msg_id != UNCHOKE_MSGI) or
+            (msg_id != INTERESTED_MSGID) or
+            (msg_id != NOTINTERESTED_MSGID) or
+            (msg_id != HAVE_MSGID) or
+            (msg_id != BITFIELD_MSGID) or
+            (msg_id != REQUEST_MSGID) or
+            (msg_id != PIECE_MSGID) or
+            (msg_id != CANCEL_MSGID) or
+            (msg_id != PORT_MSGID)):
+            except HummusError("MSG ID not a valid ID number")
+
+        return (msg_id, msg_length)
+
 
     def shakeHands(self):
         # Contruct the handshake
@@ -264,43 +304,116 @@ class Peer(object):
 
         self._shaken_hands = True
 
-#check my choking and interested state and vice versa in the following functions
-#check my choking and interested state and vice versa in the following functions
-#check my choking and interested state and vice versa in the following functions
-#check my choking and interested state and vice versa in the following functions
-#check my choking and interested state and vice versa in the following functions
-#check my choking and interested state and vice versa in the following functions
-#check my choking and interested state and vice versa in the following functions
-#check my choking and interested state and vice versa in the following functions
     #====Sending messages
     def sendKeepAlive(self):
-        pass
+        """keep-alive: <len=0000>"""
+        chunk = struct.pack('>i', 0)
+        self.send(chunk)
+
     def sendChoke(self):
-        pass
+        """choke: <len=0001><id=0>"""
+        chunk = struct.pack('>iB',1, 0)
+        self.send(chunk)
+
     def sendUnchoke(self):
-        pass
+        """unchoke: <len=0001><id=1>"""
+        chunk = struct.pack('>iB', 1, 1)
+        self.send(chunk)
+
     def sendInterested(self):
-        pass
+        """interested: <len=0001><id=2>"""
+        chunk = struct.pack('>iB', 1, 2)
+        self.send(chunk)
+
     def sendNotInterested(self):
-        pass
+        """not interested: <len=0001><id=3>"""
+        chunk = struct.pack('>iB', 1, 3)
+        self.send(chunk)
+
     def sendHaveMsgs(self):
-        #Send a have message for every piece we have completed
-        # completed_pieces = manager.master_record.getCompletedPieces()
-        # for piece_id in completed_pieces:
-        #     self.sendHave(piece_id) <--construct message, send it
-        pass
+        completed_pieces = self.master_record.getCompletedPieces()
+        for piece_id in completed_pieces:
+            self.sendHave(piece_id)
+        
+    def sendHave(self, piece_id):
+        """have: <len=0005><id=4><piece index>"""
+        chunk = struct.pack('>iBi', 5, 4, piece_id)
+        self.send(chunk)
+
     def sendBitfield(self):
-        pass
+        """bitfield: <len=0001+X><id=5><bitfield>"""
+        num_pieces = self.master_record.getNumPieces()
+        completed_pieces = self.master_record.getCompletedPieces()
+        bits = bitstring.BitArray(num_pieces)
+        for index in completed_pieces:
+            bits[index] = True
+
+        if len(bits) % 4 != 0:
+            bits += 4 - len(bits) % 4
+        byte_length = len(bits) // 4
+
+        chunk = struct.pack('>iB', byte_length + 1, 5)
+        self.send(chunk)
+        chunk = bits.hex
+        self.send(chunk)
+
     def sendRequestMsgs(self):
-        #For every piece that the peer has that we need
-        #so long as we have <20 pending requests and there are still pieces needed that HAVE NOT been requested already
-        #make sure to only request blocks from pieces that are not active in master_record or are actively held by us
-        #mark piece as active in master_record before sending request
-        #if we mark as active in master record, make sure to add to our actively held pieces set
-        #mark new request in self._pending_requests dict
-        pass
-    def sendPiece(self):
-        pass        
+        """request: <len=0013><id=6><index><begin><length>"""
+
+        def newPiecesToRequest():
+            #Calculate the pieces to request
+            needed = self.master_record.getNeededPieces()
+            peer_has = self._pieces_peer_has
+            already_active = self.master_record.getActivePieces()
+            to_request = set.intersection(needed,peer_has).difference(already_active)
+            return to_request
+
+        #Compile set of new requests to send out
+        new_reqs = set() #(piece index, block index)
+        needed = MAX_PENDING - self.getNumPendingRequests()
+        assert needed >= 0
+        while needed  > 0:
+            #Grab requests from existing active pieces first
+            for piece in self._actively_held_pieces:
+                for block in self._pending_requests[piece]:
+                    if self._pending_requests[piece][block] == False and (piece, block) not in new_reqs and needed > 0:
+                            new_reqs.add((piece,block))
+                            needed = needed - 1
+
+            if needed > 0:
+                possibles = newPiecesToRequest()
+                if len(possibles) == 0: 
+                    break
+                to_activate = possibles.pop()
+                success = self.master_record.makePieceActive(to_activate)
+                if success == False:
+                    continue
+                elif success == None:
+                    except HummusError("Peer tried to activate a piece at index that does not exist according to master record")
+                else:
+                    self._actively_held_pieces.add(to_activate)
+
+        #Send all new requests and then mark them as pending
+        for reqs in new_reqs:
+            piece_index = reqs[0]
+            block_index = reqs[1]
+            
+            if piece_index == (self.master_record.numPieces() - 1) and block_index == (len(self._pending_requests[piece_index]) - 1):
+                #This is the last block of the last piece
+                last_piece_length = self.master_record.totalSizeInBytes() % self.manager.torrent_file.piece_length
+                block_length = last_piece_length % BLOCKSIZE
+            else:
+                block_length = BLOCKSIZE
+
+            msg = struct.pack('>iB3i', 13, 6, piece_index, block_index, block_length)
+            self.send(msg)
+            self._pending_requests[piece_index][block_index] = True        
+
+    def sendPiece(self, index, begin, byte_length, block):
+        """piece: <len=0009+X><id=7><index><begin><block>"""
+        msg = struct.pack('>4i', 9+byte_length, 7, index, begin)
+        self.send(msg)
+        self.send(chunk)
 
 
     #====Receiving messages
@@ -384,7 +497,7 @@ class Peer(object):
             raise HummusError("Could not read bytes from master record")
         assert length(chunk) == byte_length
 
-        self.send(chunk)
+        self.sendPiece(index, begin_byte, byte_length, chunk)
 
     def recvPiece(self, length):
         """piece: <len=0009+X><id=7><index><begin><block>"""

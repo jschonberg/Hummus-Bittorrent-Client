@@ -45,7 +45,7 @@ class MasterRecord(object):
         "Returns True if this piece is needed, False otherwise"
     def getNeededPieces(self):
         """
-        Returns a list of piece_indices that are still needed
+        Returns a SET of piece_indices that are still needed
         Returns an empty list if no pieces are needed
         """
     def isPieceCompleted(self, piece_index):
@@ -56,10 +56,10 @@ class MasterRecord(object):
         "Returns True if this piece is active, false otherwise"
     def makePieceActive(self, piece_index):
         """
-        Set piece_index as active. Throws HummusError if piece is already active
+        Set piece_index as active. Returns true if success. None if index is wrong. False if piece is already active.
         """
     def getActivePieces(self):
-        "Returns a list of piece_indices that are active"
+        "Returns a set of piece_indices that are active"
     def saveData(self, piece_index, begin_offset, bytes):
         "Write bytes data to byteFile. bytes should be an immutable python bytes object"
         "Only save data to disk if all blocks for this piece have now been downloaded. Check hash first."
