@@ -1,6 +1,7 @@
 import logging
 import math
 import socket
+from threading import Lock
 import time
 import utilities
 from utilities import HummusError
@@ -59,7 +60,7 @@ class Peer(object):
         self._am_interested = False
         self._peer_choking = True
         self._peer_interested = False
-
+        self._recv_dispatch = {}
         self.manager = manager #Reference to manager managing this peer
         self.master_record = manager.master_record
         self.sock = sock
@@ -78,19 +79,19 @@ class Peer(object):
     #----
     #Utility Functions
     #----
-    def die():
+    def die(self):
         with self._alive_lock:
             self._alive = False
 
-    def isAlive():
+    def isAlive(self):
         with self._alive_lock:
             return self._alive
 
-    def isKeepAliveMsg(chunk):
+    def isKeepAliveMsg(self, chunk):
         (data,) = struct.unpack('>i', chunk)
         return data == 0
 
-    def stayConnected():
+    def stayConnected(self):
         """
         Return True if last msg received from peer was <=2min ago
         Return false otherwise
@@ -98,7 +99,7 @@ class Peer(object):
         #TODO:Rename this and should be called by manager
         pass
 
-    def interestedInPeer():
+    def interestedInPeer(self):
         """
         Return True if this Peer has at least one piece that we need
         Return False otherwise
@@ -207,7 +208,7 @@ class Peer(object):
             total_sent = total_sent + sent
 
 
-    def recv(self, length=BLOCK_SIZE):
+    def recv(self, length=BLOCKSIZE):
         """
         Get length bytes from Peer
         Returns bytestring of len length. Raises HummusError if connection is broken
@@ -253,7 +254,7 @@ class Peer(object):
 
     def shakeHands(self):
         # Contruct the handshake
-        handshake_to_send = utilities.constructHandshake(self.manager.getInfoHash(), !!!utilities.SELF_PEER_ID!!!!! )
+        handshake_to_send = utilities.constructHandshake(self.manager.getInfoHash(), utilities.SELF_PEER_ID)
 
         # send the handshake
         try:
