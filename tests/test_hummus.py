@@ -87,8 +87,9 @@ class TestPeerMethods(unittest.TestCase):
     # @patch('hummus.manager.Manager')
     def setUp(self):
         self.mock_manager = Mock()
-        # self.master_record = Mock()
-        # self.mock_manager.master_record = self.master_record
+        self.master_record = Mock()
+        self.mock_manager.master_record = self.master_record
+        self.master_record.numPieces.return_value = 16
         # self.master_record.isPieceNeeded.return_value = True
         # local_peer = Peer(mock_manager, '-HU0010-hZNIBCmgrY5Y', 'localhost', LOCALHOST_PORT)
         self.local_peer = Peer(self.mock_manager, '-HU0010-0HyZeTecrY0m', 'localhost', LOCALHOST_PORT)

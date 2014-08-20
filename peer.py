@@ -1,16 +1,22 @@
 import logging
 import math
-import socket
 from threading import Lock
+import socket
 import time
 import utilities
 from utilities import HummusError
 import bitstring
+import struct
 
 KILOBYTE = 1024 #Bytes in a KB
 BLOCKSIZE = 16 * KILOBYTE
 
 class Peer(object):
+    """
+    Peer object creates a connection to a remote peer, if not given a live
+    socket. Upon calling .execute() on a peer, it will begin to download and
+    upload data to/from the remote peer
+    """
     #----
     #Constants
     #----
@@ -26,7 +32,7 @@ class Peer(object):
     CANCEL_MSGID = 8
     PORT_MSGID = 9
 
-    MAX_PENDING = 20  #By convention we don't want more than 20 pending requests at a time
+    MAX_PENDING = 20  #Convention, <20 requests at a time
 
     #----
     #Class Functions
@@ -36,7 +42,7 @@ class Peer(object):
         with self._alive_lock:
             self._alive = True
         self._shaken_hands = False if sock == None else True
-        self._dataBuffer = []
+        self._data_buffer = []
         self._last_msg_time = None
         self._peer_id = peer_id #Unique id from tracker for remote peer
         self._ip_address = ip_address
@@ -44,16 +50,20 @@ class Peer(object):
         self._pieces_peer_has = set()
         self._actively_held_pieces = set() #piece_indices of pieces we have marked as active in master record
 
-        for index in range(manager.master_record.numPieces()):
-            filesize = self.manager.master_record.totalSizeInBytes()
+        self.manager = manager
+        self.master_record = manager.master_record
+
+        self._pending_requests = {}
+        for index in range(self.master_record.numPieces()):
+            filesize = self.master_record.totalSizeInBytes()
             piecesize = self.manager.torrent_file.piece_length
-            if ((index == manager.master_record.numPieces() - 1) and
+            if ((index == self.master_record.numPieces() - 1) and
                 (filesize % piecesize != 0)):
                 num_blocks = math.ceil(filesize % piecesize,BLOCKSIZE)
             else:
                 assert piecesize % BLOCKSIZE == 0
                 num_blocks = piecesize // BLOCKSIZE
-            self._pending_requests.add({index : [False]*num_blocks})    
+            self._pending_requests[index] = [False] * num_blocks
         assert len(self._pending_requests) == self.manager.master_record.numPieces()
 
         self._am_choking = True
@@ -61,8 +71,6 @@ class Peer(object):
         self._peer_choking = True
         self._peer_interested = False
         self._recv_dispatch = {}
-        self.manager = manager #Reference to manager managing this peer
-        self.master_record = manager.master_record
         self.sock = sock
 
 
@@ -109,7 +117,7 @@ class Peer(object):
                 return True
         return False
 
-    def getNumPendingRequests():
+    def getNumPendingRequests(self):
         count = 0
         for piece in self._pending_requests:
             for block in self._pending_requests[piece]:
@@ -119,6 +127,9 @@ class Peer(object):
         return count
 
     def execute(self):
+        """
+        Begin sending and receiving data with remote peer
+        """
         self._recv_dispatch = {
             KEEPALIVE_MSGID : recvKeepAlive,
             CHOKE_MSGID : recvChoke,
@@ -133,7 +144,7 @@ class Peer(object):
 
         if self.sock == None: 
             #initiator peer (from manager). connect to peer and shake hands.
-            self.sock = utilities.connectToPeer()
+            self.sock = utilities.connectToPeer(self._ip_address, self._port)
             if self.sock == None:
                 #Could not create a connection, kill this peer
                 self.die()
@@ -174,9 +185,9 @@ class Peer(object):
 
             try:
                 max_msgs = 50
-                for x in range(max_msgs):
+                for _ in range(max_msgs):
                     chunk = self.recv(4)
-                    if isKeepAliveMsg(chunk):
+                    if self.isKeepAliveMsg(chunk):
                         self._recv_dispatch[KEEPALIVE_MSGID]()
                     else:
                         chunk += self.recv(1)
@@ -195,14 +206,14 @@ class Peer(object):
     #----
     #Networking Functions
     #----
-    def send(self, bytes):
+    def send(self, data):
         """
-        Send entirety of bytes to remote peer
+        Send entirety of data to remote peer
         Raises HummusError if socket connection is broken
         """
         total_sent = 0
-        while total_sent < len(bytes):
-            sent = self.sock(byes[total_sent:])
+        while total_sent < len(data):
+            sent = self.sock(data[total_sent:])
             if sent == 0:
                 raise HummusError("Error: socket connect to peer:" + self._peer_id + " broken")
             total_sent = total_sent + sent
@@ -228,15 +239,15 @@ class Peer(object):
     #----
     #Messaging Functions
     #----
-    def parseMsgType(self, bytes):
+    def parseMsgType(self, data):
         """
         Parse and return (msg_id,msg_length)
         Throws HummusError if can't determine valid message type or length is nonsensical
         """
-        if len(bytes) != 5:
+        if len(data) != 5:
             raise HummusError("Message type not readable. Length is more than 5 bytes")
 
-        (msg_length, msg_id) = struct.unpack('>iB',bytes[0:4], bytes[4])
+        (msg_length, msg_id) = struct.unpack('>iB',data[0:4], data[4])
         if ((msg_id != CHOKE_MSGID) or 
             (msg_id != UNCHOKE_MSGI) or
             (msg_id != INTERESTED_MSGID) or
@@ -414,7 +425,7 @@ class Peer(object):
         """piece: <len=0009+X><id=7><index><begin><block>"""
         msg = struct.pack('>4i', 9+byte_length, 7, index, begin)
         self.send(msg)
-        self.send(chunk)
+        self.send(block)
 
 
     #====Receiving messages
@@ -455,7 +466,7 @@ class Peer(object):
             raise HummusError("\"Bitfield\" length is less than number of total pieces")
 
         chunk = self.recv(length)
-        bits = bitstring.BitArray(bytes=chunk)
+        bits = bitstring.BitArray(data=chunk)
         index = 0
         for bit in bits:
             if bit == 1:
@@ -507,7 +518,7 @@ class Peer(object):
 
         chunk = self.recv(length - 1)
         stuct_param = '>2i%sB' % (length - 9)
-        (index, begin_byte, bytes) = struct.unpack(struct_param, chunk)
+        (index, begin_byte, data) = struct.unpack(struct_param, chunk)
 
         if self._am_choking:
             logging.info("Ignoring Piece message due to choking")
@@ -517,18 +528,18 @@ class Peer(object):
             return None
 
         starting_byte_index = self.manager.torrent_file.piece_length * index
-        total_length = starting_byte_index + begin_byte + len(bytes)
+        total_length = starting_byte_index + begin_byte + len(data)
         if total_length > self.master_record.totalSizeInBytes():
-            raise HummusError("Received " + str(len(bytes)) + " bytes, starting at byte " + str(starting_byte_index + begin_byte) + " which is greater than the total bytes in the file of " + str(self.master_record.totalSizeInBytes()))
+            raise HummusError("Received " + str(len(data)) + " bytes, starting at byte " + str(starting_byte_index + begin_byte) + " which is greater than the total bytes in the file of " + str(self.master_record.totalSizeInBytes()))
 
         #If the bytes reach to the end of the file, we need to keep them all. Otherwise, we need to slice off the remnant bytes.
-        blocks = len(bytes) // BLOCKSIZE
+        blocks = len(data) // BLOCKSIZE
         if total_length == self.master_record.totalSizeInBytes():
             blocks = blocks + 1
         else:
-            bytes = bytes[:(blocks * BLOCKSIZE)]
+            data = data[:(blocks * BLOCKSIZE)]
 
-        master_record.saveData(index, begin_byte, bytes)
+        self.master_record.saveData(index, begin_byte, data)
 
         for block in range(blocks):
             self._pending_requests[index][begin_byte // BLOCKSIZE + block] == False
