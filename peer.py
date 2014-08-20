@@ -47,17 +47,7 @@ class Peer(object):
         self._peer_choking = True
         self._peer_interested = False
 
-        self._recv_dispatch = {
-            KEEPALIVE_MSGID : recvKeepAlive,
-            CHOKE_MSGID : recvChoke,
-            UNCHOKE_MSGID : recvUnchoke,
-            INTERESTED_MSGID : recvInterested,
-            NOTINTERESTED_MSGID : recvNotInterested,
-            HAVE_MSGID : recvHave,
-            BITFIELD_MSGID : recvBitfield,
-            REQUEST_MSGID : recvRequest,
-            PIECE_MSGID : recvPiece,
-        }
+        self._recv_dispatch = {}
 
         self.manager = manager #Reference to manager managing this peer
         self.sock = sock
@@ -76,19 +66,19 @@ class Peer(object):
     #----
     #Utility Functions
     #----
-    def die():
+    def die(self):
         with self._alive_lock:
             self._alive = False
 
-    def isAlive():
+    def isAlive(self):
         with self._alive_lock:
             return self._alive
 
-    def isKeepAliveMsg(chunk):
+    def isKeepAliveMsg(self, chunk):
         (data,) = struct.unpack('>i', chunk)
         return data == 0
 
-    def stayConnected():
+    def stayConnected(self):
         """
         Return True if last msg received from peer was <=2min ago
         Return false otherwise
@@ -96,7 +86,7 @@ class Peer(object):
         #TODO:Rename this and should be called by manager
         pass
 
-    def interestedInPeer():
+    def interestedInPeer(self):
         """
         Return True if this Peer has at least one piece that we need
         Return False otherwise
@@ -107,6 +97,18 @@ class Peer(object):
         return False
 
     def execute(self):
+        self._recv_dispatch = {
+            KEEPALIVE_MSGID : recvKeepAlive,
+            CHOKE_MSGID : recvChoke,
+            UNCHOKE_MSGID : recvUnchoke,
+            INTERESTED_MSGID : recvInterested,
+            NOTINTERESTED_MSGID : recvNotInterested,
+            HAVE_MSGID : recvHave,
+            BITFIELD_MSGID : recvBitfield,
+            REQUEST_MSGID : recvRequest,
+            PIECE_MSGID : recvPiece,
+        }
+
         if self.sock == None: 
             #initiator peer (from manager). connect to peer and shake hands.
             self.sock = utilities.connectToPeer()

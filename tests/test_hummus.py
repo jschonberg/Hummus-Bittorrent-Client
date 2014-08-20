@@ -86,11 +86,11 @@ class TestUtilities(unittest.TestCase):
 class TestPeerMethods(unittest.TestCase):
     # @patch('hummus.manager.Manager')
     def setUp(self):
-        mock_manager = Mock()
+        self.mock_manager = Mock()
         # local_peer = Peer(mock_manager, '-HU0010-hZNIBCmgrY5Y', 'localhost', LOCALHOST_PORT)
-        local_peer = Peer(mock_manager, '-HU0010-0HyZeTecrY0m', 'localhost', LOCALHOST_PORT)
-        remote_peer = Peer(mock_manager, '-HU0010-0HyZeTecrY0m', 'localhost', REMOTEHOST_PORT)
+        self.local_peer = Peer(self.mock_manager, '-HU0010-0HyZeTecrY0m', 'localhost', LOCALHOST_PORT)
+        self.remote_peer = Peer(self.mock_manager, '-HU0010-0HyZeTecrY0m', 'localhost', REMOTEHOST_PORT)
 
     def test_isAlive(self):
-        ok_(local_peer.isAlive(), True)
+        ok_(self.local_peer.isAlive(), True)
 
