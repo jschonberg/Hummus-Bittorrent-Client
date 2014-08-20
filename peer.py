@@ -234,7 +234,7 @@ class Peer(object):
         Throws HummusError if can't determine valid message type or length is nonsensical
         """
         if len(bytes) != 5:
-            except HummusError("Message type not readable. Length is more than 5 bytes")
+            raise HummusError("Message type not readable. Length is more than 5 bytes")
 
         (msg_length, msg_id) = struct.unpack('>iB',bytes[0:4], bytes[4])
         if ((msg_id != CHOKE_MSGID) or 
@@ -247,7 +247,7 @@ class Peer(object):
             (msg_id != PIECE_MSGID) or
             (msg_id != CANCEL_MSGID) or
             (msg_id != PORT_MSGID)):
-            except HummusError("MSG ID not a valid ID number")
+            raise HummusError("MSG ID not a valid ID number")
 
         return (msg_id, msg_length)
 
@@ -390,7 +390,7 @@ class Peer(object):
                 if success == False:
                     continue
                 elif success == None:
-                    except HummusError("Peer tried to activate a piece at index that does not exist according to master record")
+                    raise HummusError("Peer tried to activate a piece at index that does not exist according to master record")
                 else:
                     self._actively_held_pieces.add(to_activate)
 
