@@ -58,6 +58,11 @@ class MasterRecord(object):
         """
         Set piece_index as active. Returns true if success. None if index is wrong. False if piece is already active.
         """
+    def makePieceInactive(self, piece_index):
+        """
+        Called by a dying Peer. MasterRecord will make piece either "needed" or "complete" based on what has been downloaded
+        Returns True on success. False if piece is already inactive. None if the piece_index is wrong.
+        """
     def getActivePieces(self):
         "Returns a set of piece_indices that are active"
     def saveData(self, piece_index, begin_offset, bytes):
