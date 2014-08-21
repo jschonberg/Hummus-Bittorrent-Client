@@ -63,7 +63,8 @@ class Peer(object):
                 assert piecesize % BLOCKSIZE == 0
                 num_blocks = piecesize // BLOCKSIZE
             self._pending_requests[index] = [False] * num_blocks
-        assert len(self._pending_requests) == self.manager.master_record.numPieces()
+        print str(len(self._pending_requests)), str(self.master_record.numPieces())
+        assert len(self._pending_requests) == self.master_record.numPieces()
 
         self._am_choking = True
         self._am_interested = False
@@ -74,7 +75,8 @@ class Peer(object):
 
     def __del__(self):
         self.die()
-        self._sock.close()
+        if self._sock:
+            self._sock.close()
         for piece in self._actively_held_pieces:
             result = self.master_record.makePieceInactive(piece)
             assert result != None

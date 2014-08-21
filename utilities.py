@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import logging
 import socket
 import struct
@@ -5,7 +7,7 @@ import struct
 KILOBYTE = 1024 #Bytes in a KB
 BLOCKSIZE = 16 * KILOBYTE
 BLOCK_SIZE = 16384 #16KB
-SELF_PEER_ID = '-HU0010-0HyZeTecrY0m'
+SELF_PEER_ID = u'-HU0010-0HyZeTecrY0m'.encode('utf-8')
 
 class HummusError(RuntimeError):
     def __init__(self, reason):
