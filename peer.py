@@ -3,13 +3,12 @@ import math
 from threading import Lock
 import socket
 import time
-from utilities import HummusError
 import utilities
+from utilities import HummusError, KILOBYTE
 import bitstring
 import struct
 
-KILOBYTE = 1024 #Bytes in a KB
-BLOCKSIZE = 16 * KILOBYTE
+BLOCKSIZE = utilities.BLOCKSIZE
 
 class Peer(object):
     """
@@ -56,7 +55,7 @@ class Peer(object):
         self._pending_requests = {}
         for index in range(self.master_record.numPieces()):
             filesize = self.master_record.totalSizeInBytes()
-            piecesize = self.manager.torrent_file.piece_length
+            piecesize = self.manager.torrent_file['piece_length']
             if ((index == self.master_record.numPieces() - 1) and
                 (filesize % piecesize != 0)):
                 num_blocks = math.ceil(filesize % piecesize,BLOCKSIZE)
@@ -127,15 +126,15 @@ class Peer(object):
         Begin sending and receiving data with remote peer
         """
         self._recv_dispatch = {
-            KEEPALIVE_MSGID : recvKeepAlive,
-            CHOKE_MSGID : recvChoke,
-            UNCHOKE_MSGID : recvUnchoke,
-            INTERESTED_MSGID : recvInterested,
-            NOTINTERESTED_MSGID : recvNotInterested,
-            HAVE_MSGID : recvHave,
-            BITFIELD_MSGID : recvBitfield,
-            REQUEST_MSGID : recvRequest,
-            PIECE_MSGID : recvPiece,
+            self.KEEPALIVE_MSGID : self.recvKeepAlive,
+            self.CHOKE_MSGID : self.recvChoke,
+            self.UNCHOKE_MSGID : self.recvUnchoke,
+            self.INTERESTED_MSGID : self.recvInterested,
+            self.NOTINTERESTED_MSGID : self.recvNotInterested,
+            self.HAVE_MSGID : self.recvHave,
+            self.BITFIELD_MSGID : self.recvBitfield,
+            self.REQUEST_MSGID : self.recvRequest,
+            self.PIECE_MSGID : self.recvPiece,
         }
 
         if self._sock == None: 
@@ -184,12 +183,12 @@ class Peer(object):
                 for _ in range(max_msgs):
                     chunk = self.recv(4)
                     if self.isKeepAliveMsg(chunk):
-                        self._recv_dispatch[KEEPALIVE_MSGID]()
+                        self._recv_dispatch[self.KEEPALIVE_MSGID]()
                     else:
                         chunk += self.recv(1)
                         (msg_id, msg_length) = self.parseMsgType(chunk)
                         self._recv_dispatch[msg_id](msg_length)
-            except timeout:
+            except socket.timeout:
                 logging.info("Peer timed out")
             except HummusError as e:
                 self.die()
@@ -244,16 +243,16 @@ class Peer(object):
             raise HummusError("Message type not readable. Length is more than 5 bytes")
 
         (msg_length, msg_id) = struct.unpack('>iB',data[0:4], data[4])
-        if ((msg_id != CHOKE_MSGID) or 
-            (msg_id != UNCHOKE_MSGI) or
-            (msg_id != INTERESTED_MSGID) or
-            (msg_id != NOTINTERESTED_MSGID) or
-            (msg_id != HAVE_MSGID) or
-            (msg_id != BITFIELD_MSGID) or
-            (msg_id != REQUEST_MSGID) or
-            (msg_id != PIECE_MSGID) or
-            (msg_id != CANCEL_MSGID) or
-            (msg_id != PORT_MSGID)):
+        if ((msg_id != self.CHOKE_MSGID) or 
+            (msg_id != self.UNCHOKE_MSGI) or
+            (msg_id != self.INTERESTED_MSGID) or
+            (msg_id != self.NOTINTERESTED_MSGID) or
+            (msg_id != self.HAVE_MSGID) or
+            (msg_id != self.BITFIELD_MSGID) or
+            (msg_id != self.REQUEST_MSGID) or
+            (msg_id != self.PIECE_MSGID) or
+            (msg_id != self.CANCEL_MSGID) or
+            (msg_id != self.PORT_MSGID)):
             raise HummusError("MSG ID not a valid ID number")
 
         return (msg_id, msg_length)
@@ -378,7 +377,7 @@ class Peer(object):
 
         #Compile set of new requests to send out
         new_reqs = set() #(piece index, block index)
-        needed = MAX_PENDING - self.getNumPendingRequests()
+        needed = self.MAX_PENDING - self.getNumPendingRequests()
         assert needed >= 0
         while needed  > 0:
             #Grab requests from existing active pieces first
@@ -493,7 +492,7 @@ class Peer(object):
         if index >= self.master_record.numPieces():
             raise HummusError("Index from Request is greater than number of pieces")
 
-        if byte_length > 32*KILOBYTE:
+        if byte_length > 32 * KILOBYTE:
             raise HummusError("Requested bytes is greater than 32KB")
 
         starting_byte_index = self.manager.torrent_file.piece_length * index

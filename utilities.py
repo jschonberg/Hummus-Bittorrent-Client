@@ -1,9 +1,9 @@
 import logging
 import socket
-from threading import Lock
-import hashlib
 import struct
 
+KILOBYTE = 1024 #Bytes in a KB
+BLOCKSIZE = 16 * KILOBYTE
 BLOCK_SIZE = 16384 #16KB
 SELF_PEER_ID = '-HU0010-0HyZeTecrY0m'
 
@@ -11,9 +11,9 @@ class HummusError(RuntimeError):
     def __init__(self, reason):
         self.reason = reason
     def __repr__(self):
-        return str(reason)
+        return str(self.reason)
     def __str__(self):
-        return str(reason)
+        return str(self.reason)
 
 def listen(port, manager):
     """Start listening for incoming connections on port
