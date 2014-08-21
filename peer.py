@@ -70,18 +70,14 @@ class Peer(object):
         self._peer_choking = True
         self._peer_interested = False
         self._recv_dispatch = {}
-        self.sock = sock
-
+        self._sock = sock
 
     def __del__(self):
-        #close the socket
-        #make sure all pieces that are active with this peer are marked as inactive
-        pass
-    def __enter__(self):
-        pass
-    def __exit__(self, type, value, traceback):
-        #TODO: make sure sockets are closed, don't kill thread/peer until socket is closed!
-        pass
+        self.die()
+        self._sock.close()
+        for piece in self._actively_held_pieces:
+            result = self.master_record.makePieceInactive(piece)
+            assert result != None
 
     #----
     #Utility Functions
@@ -141,16 +137,16 @@ class Peer(object):
             self.PIECE_MSGID : self.recvPiece,
         }
 
-        if self.sock == None: 
+        if self._sock == None: 
             #initiator peer (from manager). connect to peer and shake hands.
-            self.sock = utilities.connectToPeer(self._ip_address, self._port)
-            if self.sock == None:
+            self._sock = utilities.connectToPeer(self._ip_address, self._port)
+            if self._sock == None:
                 #Could not create a connection, kill this peer
                 self.die()
                 logging.error("Couldn't connect to peer")
                 return None
 
-            assert (self._ip_address, self._port) == self.sock.getpeername()
+            assert (self._ip_address, self._port) == self._sock.getpeername()
 
             self.shakeHands()
             if self.isAlive() == False or self._shaken_hands == False:
@@ -158,7 +154,7 @@ class Peer(object):
                 logging.error("Couldn't shake hands")
                 return None
 
-        self.sock.settimeout(3)
+        self._sock.settimeout(3)
         self.sendBitfield()
         
         while True:
@@ -187,12 +183,12 @@ class Peer(object):
                 for _ in range(max_msgs):
                     chunk = self.recv(4)
                     if self.isKeepAliveMsg(chunk):
-                        self._recv_dispatch[KEEPALIVE_MSGID]()
+                        self._recv_dispatch[self.KEEPALIVE_MSGID]()
                     else:
                         chunk += self.recv(1)
                         (msg_id, msg_length) = self.parseMsgType(chunk)
                         self._recv_dispatch[msg_id](msg_length)
-            except timeout:
+            except socket.timeout:
                 logging.info("Peer timed out")
             except HummusError as e:
                 self.die()
@@ -212,7 +208,7 @@ class Peer(object):
         """
         total_sent = 0
         while total_sent < len(data):
-            sent = self.sock(data[total_sent:])
+            sent = self._sock.send(data[total_sent:])
             if sent == 0:
                 raise HummusError("Error: socket connect to peer:" + self._peer_id + " broken")
             total_sent = total_sent + sent
@@ -227,7 +223,7 @@ class Peer(object):
         chunks = []
         bytes_recd = 0
         while bytes_recd < length:
-            chunk = self.sock.recv(min(length - bytes_recd, 2048))
+            chunk = self._sock.recv(min(length - bytes_recd, 2048))
             if chunk == '':
                 raise HummusError("Error: could not receive data from peer:" + self._peer_id + ". Socket connection broken")
             chunks.append(chunk)
