@@ -32,7 +32,7 @@ class Peer(object):
     CANCEL_MSGID = 8
     PORT_MSGID = 9
 
-    MAX_PENDING = 20  #Convention, <20 requests at a time
+    MAX_PENDING = 20  #By convention, <20 requests at a time
 
     #----
     #Class Functions
