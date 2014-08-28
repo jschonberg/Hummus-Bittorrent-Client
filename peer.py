@@ -53,18 +53,18 @@ class Peer(object):
         self.master_record = manager.master_record
 
         self._pending_requests = {}
-        for index in range(self.master_record.numPieces()):
-            filesize = self.master_record.totalSizeInBytes()
-            piecesize = self.manager.torrent_file['piece_length']
-            if ((index == self.master_record.numPieces() - 1) and
-                (filesize % piecesize != 0)):
-                num_blocks = math.ceil(filesize % piecesize,BLOCKSIZE)
-            else:
-                assert piecesize % BLOCKSIZE == 0
-                num_blocks = piecesize // BLOCKSIZE
-            self._pending_requests[index] = [False] * num_blocks
-        print str(len(self._pending_requests)), str(self.master_record.numPieces())
-        assert len(self._pending_requests) == self.master_record.numPieces()
+        # for index in range(self.master_record.numPieces()):
+        #     filesize = self.master_record.totalSizeInBytes()
+        #     piecesize = self.manager.torrent_file['piece_length']
+        #     if ((index == self.master_record.numPieces() - 1) and
+        #         (filesize % piecesize != 0)):
+        #         num_blocks = math.ceil(filesize % piecesize,BLOCKSIZE)
+        #     else:
+        #         assert piecesize % BLOCKSIZE == 0
+        #         num_blocks = piecesize // BLOCKSIZE
+        #     self._pending_requests[index] = [False] * num_blocks
+        # print str(len(self._pending_requests)), str(self.master_record.numPieces())
+        # assert len(self._pending_requests) == self.master_record.numPieces()
 
         self._am_choking = True
         self._am_interested = False
@@ -122,6 +122,10 @@ class Peer(object):
                     count = count + 1
 
         return count
+
+    def createSocket(self):
+        #For testing purposes.
+        self._sock = utilities.connectToPeer(self._ip_address, self._port)
 
     def execute(self):
         """
