@@ -48,6 +48,12 @@ class Peer(object):
         self._port = port
         self._pieces_peer_has = set()
         self._actively_held_pieces = set() #piece_indices of pieces we have marked as active in master record
+        self._am_choking = True
+        self._am_interested = False
+        self._peer_choking = True
+        self._peer_interested = False
+        self._recv_dispatch = {}
+        self._sock = sock
 
         self.manager = manager
         self.master_record = manager.master_record
@@ -63,13 +69,6 @@ class Peer(object):
             self._pending_requests[num_full_pieces + 1] = [False] * (math.ceil(filesize % piece_size,BLOCKSIZE))
 
         assert len(self._pending_requests) == self.manager.master_record.numPieces()
-
-        self._am_choking = True
-        self._am_interested = False
-        self._peer_choking = True
-        self._peer_interested = False
-        self._recv_dispatch = {}
-        self._sock = sock
 
     def __del__(self):
         self.die()
