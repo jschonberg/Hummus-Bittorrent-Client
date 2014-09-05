@@ -30,6 +30,7 @@ class Peer(object):
     PIECE_MSGID = 7
     CANCEL_MSGID = 8
     PORT_MSGID = 9
+    VALID_IDS = range(-1,10)
 
     MAX_PENDING = 20  #By convention, <20 requests at a time
 
@@ -48,29 +49,27 @@ class Peer(object):
         self._port = port
         self._pieces_peer_has = set()
         self._actively_held_pieces = set() #piece_indices of pieces we have marked as active in master record
-
-        self.manager = manager
-        self.master_record = manager.master_record
-
-        self._pending_requests = {}
-        for index in range(self.master_record.numPieces()):
-            filesize = self.master_record.totalSizeInBytes()
-            piecesize = self.manager.info_dictionary['piece_length']
-            if ((index == self.master_record.numPieces() - 1) and
-                (filesize % piecesize != 0)):
-                num_blocks = math.ceil(filesize % piecesize,BLOCKSIZE)
-            else:
-                assert piecesize % BLOCKSIZE == 0
-                num_blocks = piecesize // BLOCKSIZE
-            self._pending_requests[index] = [False] * num_blocks
-        assert len(self._pending_requests) == self.manager.master_record.numPieces()
-
         self._am_choking = True
         self._am_interested = False
         self._peer_choking = True
         self._peer_interested = False
         self._recv_dispatch = {}
         self._sock = sock
+
+        self.manager = manager
+        self.master_record = manager.master_record
+
+        filesize = self.master_record.totalSizeInBytes()
+        piece_size = self.manager.info_dictionary['piece_length']
+        num_blocks = piece_size // BLOCKSIZE
+        num_full_pieces = filesize // piece_size
+        last_piece_size = filesize % piece_size
+
+        self._pending_requests = {index: [False] * num_blocks for index in range(num_full_pieces)}
+        if last_piece_size != 0:
+            self._pending_requests[num_full_pieces + 1] = [False] * (math.ceil(filesize % piece_size,BLOCKSIZE))
+
+        assert len(self._pending_requests) == self.manager.master_record.numPieces()
 
     def __del__(self):
         self.die()
@@ -83,7 +82,9 @@ class Peer(object):
     #----
     #Utility Functions
     #----
-    def die(self):
+    def die(self, message=None):
+        if message:
+            logging.error(message)
         with self._alive_lock:
             self._alive = False
 
@@ -108,16 +109,13 @@ class Peer(object):
         Return True if this Peer has at least one piece that we need
         Return False otherwise
         """
-        for piece_id in self._pieces_peer_has:
-            if self.master_record.isPieceNeeded(piece_id):
-                return True
-        return False
+        return any(self.master_record.isPieceNeeded(piece_id) for piece_id in self._pieces_peer_has)
 
     def getNumPendingRequests(self):
         count = 0
         for piece in self._pending_requests:
             for block in self._pending_requests[piece]:
-                if self._pending_requests[piece][block] == True: 
+                if self._pending_requests[piece][block] == True:
                     count = count + 1
 
         return count
@@ -142,32 +140,32 @@ class Peer(object):
             self.PIECE_MSGID : self.recvPiece,
         }
 
-        if self._sock == None: 
+        if self._sock == None:
             #initiator peer (from manager). connect to peer and shake hands.
             self._sock = utilities.connectToPeer(self._ip_address, self._port)
             if self._sock == None:
                 #Could not create a connection, kill this peer
-                self.die()
-                logging.error("Couldn't connect to peer")
+                self.die("Couldn't connect to peer")
                 return None
 
             assert (self._ip_address, self._port) == self._sock.getpeername()
 
             self.shakeHands()
             if self.isAlive() == False or self._shaken_hands == False:
-                self.die()
-                logging.error("Couldn't shake hands")
+                self.die("Couldn't shake hands")
                 return None
 
         self._sock.settimeout(3)
         self.sendBitfield()
-        
+
         while True:
             #Unchoke them
-            if(self._am_choking): self.sendUnchoke()
+            if self._am_choking:
+                self.sendUnchoke()
 
             #Send them what pieces we have
-            if(self._peer_interested): self.sendHaveMsgs()
+            if self._peer_interested:
+                self.sendHaveMsgs()
 
             #Determine if we're interested. Update peer if interest state changes
             if self.interestedInPeer():
@@ -196,12 +194,12 @@ class Peer(object):
             except socket.timeout:
                 logging.info("Peer timed out")
             except HummusError as e:
-                self.die()
-                logging.info("PE:" + str(e))
+                self.die("PE:" + str(e))
                 return None
 
             #Send a keep alive message
-            if self.isAlive(): self.sendKeepAlive()
+            if self.isAlive():
+                self.sendKeepAlive()
 
     #----
     #Networking Functions
@@ -248,16 +246,7 @@ class Peer(object):
             raise HummusError("Message type not readable. Length is more than 5 bytes")
 
         (msg_length, msg_id) = struct.unpack('>iB',data[0:4], data[4])
-        if ((msg_id != self.CHOKE_MSGID) or 
-            (msg_id != self.UNCHOKE_MSGI) or
-            (msg_id != self.INTERESTED_MSGID) or
-            (msg_id != self.NOTINTERESTED_MSGID) or
-            (msg_id != self.HAVE_MSGID) or
-            (msg_id != self.BITFIELD_MSGID) or
-            (msg_id != self.REQUEST_MSGID) or
-            (msg_id != self.PIECE_MSGID) or
-            (msg_id != self.CANCEL_MSGID) or
-            (msg_id != self.PORT_MSGID)):
+        if msg_id not in VALID_IDS:
             raise HummusError("MSG ID not a valid ID number")
 
         return (msg_id, msg_length)
@@ -267,51 +256,25 @@ class Peer(object):
         # Contruct the handshake
         handshake_to_send = utilities.constructHandshake(self.manager.getInfoHash(), utilities.SELF_PEER_ID)
 
-        # send the handshake
         try:
             self.send(handshake_to_send)
+            handshake = self.recv(68)
         except HummusError as e:
-            self.die()
-            logging.error(str(e))
-            return None
-
-        # receive the first byte of the response, make sure its an int of value 19
-        try:
-            (data,) = struct.unpack('>B',self.recv(1))
-        except HummusError as e:
-            self.die()
-            logging.error(str(e))
-            return None
-
-        if data != 19:
-            self.die()
-            logging.error("Ill-formed handshake response from peer.")
-            return None
-
-        # receive the rest of the handshake (67 bytes)
-        data = struct.pack('>B', 19)
-        try:
-            data.append(self.recv(67))
-        except HummusError as e:
-            self.die()
-            logging.error(str(e))
+            self.die(str(e))
             return None
 
         # parse response
         handshake_response = utilities.parseHandshake(data)
-        if handshake_response == None:
-            self.die()
-            logging.error("Handshake response is invalid.")
+        if handshake_response is None:
+            self.die("Handshake response is invalid.")
             return None
 
         # verify response
         if handshake_response[0] != self.manager.getInfoHash():
-            self.die()
-            logging.error("Could not complete handshake. Info hash from peer does not match.")
+            self.die("Could not complete handshake. Info hash from peer does not match.")
             return None
         if handshake_response[1] != self._peer_id:
-            self.die()
-            logging.error("Could not complete handshake. Peer ID does not match.")
+            self.die("Could not complete handshake. Peer ID does not match.")
             return None
 
         self._shaken_hands = True
@@ -346,7 +309,7 @@ class Peer(object):
         completed_pieces = self.master_record.getCompletedPieces()
         for piece_id in completed_pieces:
             self.sendHave(piece_id)
-        
+
     def sendHave(self, piece_id):
         """have: <len=0005><id=4><piece index>"""
         chunk = struct.pack('>iBi', 5, 4, piece_id)
@@ -394,7 +357,7 @@ class Peer(object):
 
             if needed > 0:
                 possibles = newPiecesToRequest()
-                if len(possibles) == 0: 
+                if len(possibles) == 0:
                     break
                 to_activate = possibles.pop()
                 success = self.master_record.makePieceActive(to_activate)
@@ -409,7 +372,7 @@ class Peer(object):
         for reqs in new_reqs:
             piece_index = reqs[0]
             block_index = reqs[1]
-            
+
             if piece_index == (self.master_record.numPieces() - 1) and block_index == (len(self._pending_requests[piece_index]) - 1):
                 #This is the last block of the last piece
                 last_piece_length = self.master_record.totalSizeInBytes() % self.manager.info_dictionary.piece_length
@@ -419,7 +382,7 @@ class Peer(object):
 
             msg = struct.pack('>iB3i', 13, 6, piece_index, block_index, block_length)
             self.send(msg)
-            self._pending_requests[piece_index][block_index] = True        
+            self._pending_requests[piece_index][block_index] = True
 
     def sendPiece(self, index, begin, byte_length, block):
         """piece: <len=0009+X><id=7><index><begin><block>"""
