@@ -30,6 +30,7 @@ class Peer(object):
     PIECE_MSGID = 7
     CANCEL_MSGID = 8
     PORT_MSGID = 9
+    VALID_IDS = range(-1,10)
 
     MAX_PENDING = 20  #By convention, <20 requests at a time
 
@@ -245,16 +246,7 @@ class Peer(object):
             raise HummusError("Message type not readable. Length is more than 5 bytes")
 
         (msg_length, msg_id) = struct.unpack('>iB',data[0:4], data[4])
-        if ((msg_id != self.CHOKE_MSGID) or
-            (msg_id != self.UNCHOKE_MSGI) or
-            (msg_id != self.INTERESTED_MSGID) or
-            (msg_id != self.NOTINTERESTED_MSGID) or
-            (msg_id != self.HAVE_MSGID) or
-            (msg_id != self.BITFIELD_MSGID) or
-            (msg_id != self.REQUEST_MSGID) or
-            (msg_id != self.PIECE_MSGID) or
-            (msg_id != self.CANCEL_MSGID) or
-            (msg_id != self.PORT_MSGID)):
+        if msg_id not in VALID_IDS:
             raise HummusError("MSG ID not a valid ID number")
 
         return (msg_id, msg_length)
