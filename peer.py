@@ -162,10 +162,12 @@ class Peer(object):
 
         while True:
             #Unchoke them
-            if(self._am_choking): self.sendUnchoke()
+            if self._am_choking:
+                self.sendUnchoke()
 
             #Send them what pieces we have
-            if(self._peer_interested): self.sendHaveMsgs()
+            if self._peer_interested:
+                self.sendHaveMsgs()
 
             #Determine if we're interested. Update peer if interest state changes
             if self.interestedInPeer():
@@ -198,7 +200,8 @@ class Peer(object):
                 return None
 
             #Send a keep alive message
-            if self.isAlive(): self.sendKeepAlive()
+            if self.isAlive():
+                self.sendKeepAlive()
 
     #----
     #Networking Functions
