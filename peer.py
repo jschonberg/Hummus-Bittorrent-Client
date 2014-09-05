@@ -74,7 +74,8 @@ class Peer(object):
 
     def __del__(self):
         self.die()
-        self._sock.close()
+        if self._sock:
+            self._sock.close()
         for piece in self._actively_held_pieces:
             result = self.master_record.makePieceInactive(piece)
             assert result != None
@@ -120,6 +121,10 @@ class Peer(object):
                     count = count + 1
 
         return count
+
+    def createSocket(self):
+        #For testing purposes.
+        self._sock = utilities.connectToPeer(self._ip_address, self._port)
 
     def execute(self):
         """

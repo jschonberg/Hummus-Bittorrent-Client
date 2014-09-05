@@ -1,25 +1,24 @@
 # -*- coding: utf-8 -*-
 
 import unittest
-from nose.tools import eq_, ok_
-from mock import patch, Mock
+from nose.tools import eq_
 import logging
 
 import socket
 from threading import Thread, Lock
-import hashlib
 import struct
 
 import hummus.utilities as utilities
 import hummus.bencode as bencode
-from hummus.peer import Peer
+from __init__ import LOCALHOST_PORT, INVALID_PORT
 
-INVALID_PORT = 6889
-LOCALHOST_PORT = 6885
-REMOTEHOST_PORT = 6886
+KILOBYTE = utilities.KILOBYTE
+SELF_PEER_ID = utilities.SELF_PEER_ID
+
 clientsocket_lock = Lock()
 address_lock = Lock()
 serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 serversocket.bind(('localhost', LOCALHOST_PORT))
 serversocket.listen(5)
 
@@ -64,16 +63,16 @@ class TestBencode(unittest.TestCase):
 class TestUtilities(unittest.TestCase):
     def setUp(self):
         self.info_hash = b'/ZPl\xa0\x82\x0ck}\xb3\xf4\xc3\x9f\x96CA\xbc\xd0\t6'
-        self.peer_id = u'-HU0010-0HyZeTecrY0m'.encode('utf-8')
+        self.peer_id = SELF_PEER_ID
         self.preconstructed_handshake = struct.pack('>B19s8x40s', 19, 'BitTorrent protocol', self.info_hash + self.peer_id)
 
     def test_connectToPeer_valid(self):
-        socket = utilities.connectToPeer('localhost', LOCALHOST_PORT)
-        eq_(socket.getpeername(), ('127.0.0.1', LOCALHOST_PORT))
+        test_socket = utilities.connectToPeer('localhost', LOCALHOST_PORT)
+        eq_(test_socket.getpeername(), ('127.0.0.1', LOCALHOST_PORT))
 
     def test_connectToPeer_invalid(self):
-        socket = utilities.connectToPeer('localhost', INVALID_PORT)
-        eq_(socket, None)
+        test_socket = utilities.connectToPeer('localhost', INVALID_PORT)
+        eq_(test_socket, None)
 
     def test_constructHandshake(self):
         handshake = utilities.constructHandshake(self.info_hash, self.peer_id)
@@ -82,31 +81,6 @@ class TestUtilities(unittest.TestCase):
     def test_parseHandshake(self):
         info_hash, peer_id = utilities.parseHandshake(self.preconstructed_handshake)
         eq_((info_hash, peer_id), (self.info_hash, self.peer_id))
-        
-class TestPeerMethods(unittest.TestCase):
-    # @patch('hummus.manager.Manager')
-    def setUp(self):
-        self.mock_manager = Mock()
-        self.master_record = Mock()
-        self.mock_manager.master_record = self.master_record
-        self.master_record.numPieces.return_value = 16
-        # self.master_record.isPieceNeeded.return_value = True
-        # local_peer = Peer(mock_manager, '-HU0010-hZNIBCmgrY5Y', 'localhost', LOCALHOST_PORT)
-        self.local_peer = Peer(self.mock_manager, '-HU0010-0HyZeTecrY0m', 'localhost', LOCALHOST_PORT)
-        self.remote_peer = Peer(self.mock_manager, '-HU0010-0HyZeTecrY0m', 'localhost', REMOTEHOST_PORT)
-
-    def test_isAlive(self):
-        ok_(self.local_peer.isAlive(), True)
-
-    # self.master_record.isPieceNeeded.called returns true/false if called. (callcount)
-    # can give side_effects a dict instead of a list.
-    # patch = MagicMock, not Mock
-    # @patch('peer.socket')
-    # def test_socket_recv(self, socket):
-    #     socket.recv.return_value = "Blah"
-
-    # def tearDown(self):
-    #     self.mock_manager.stop()
 
 
 
