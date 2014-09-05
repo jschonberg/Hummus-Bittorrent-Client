@@ -115,7 +115,7 @@ class Peer(object):
         count = 0
         for piece in self._pending_requests:
             for block in self._pending_requests[piece]:
-                if self._pending_requests[piece][block] == True: 
+                if self._pending_requests[piece][block] == True:
                     count = count + 1
 
         return count
@@ -140,7 +140,7 @@ class Peer(object):
             self.PIECE_MSGID : self.recvPiece,
         }
 
-        if self._sock == None: 
+        if self._sock == None:
             #initiator peer (from manager). connect to peer and shake hands.
             self._sock = utilities.connectToPeer(self._ip_address, self._port)
             if self._sock == None:
@@ -159,7 +159,7 @@ class Peer(object):
 
         self._sock.settimeout(3)
         self.sendBitfield()
-        
+
         while True:
             #Unchoke them
             if(self._am_choking): self.sendUnchoke()
@@ -246,7 +246,7 @@ class Peer(object):
             raise HummusError("Message type not readable. Length is more than 5 bytes")
 
         (msg_length, msg_id) = struct.unpack('>iB',data[0:4], data[4])
-        if ((msg_id != self.CHOKE_MSGID) or 
+        if ((msg_id != self.CHOKE_MSGID) or
             (msg_id != self.UNCHOKE_MSGI) or
             (msg_id != self.INTERESTED_MSGID) or
             (msg_id != self.NOTINTERESTED_MSGID) or
@@ -275,7 +275,7 @@ class Peer(object):
 
         # parse response
         handshake_response = utilities.parseHandshake(data)
-        if handshake_response == None:
+        if handshake_response is None:
             self.die()
             logging.error("Handshake response is invalid.")
             return None
@@ -322,7 +322,7 @@ class Peer(object):
         completed_pieces = self.master_record.getCompletedPieces()
         for piece_id in completed_pieces:
             self.sendHave(piece_id)
-        
+
     def sendHave(self, piece_id):
         """have: <len=0005><id=4><piece index>"""
         chunk = struct.pack('>iBi', 5, 4, piece_id)
@@ -370,7 +370,7 @@ class Peer(object):
 
             if needed > 0:
                 possibles = newPiecesToRequest()
-                if len(possibles) == 0: 
+                if len(possibles) == 0:
                     break
                 to_activate = possibles.pop()
                 success = self.master_record.makePieceActive(to_activate)
@@ -385,7 +385,7 @@ class Peer(object):
         for reqs in new_reqs:
             piece_index = reqs[0]
             block_index = reqs[1]
-            
+
             if piece_index == (self.master_record.numPieces() - 1) and block_index == (len(self._pending_requests[piece_index]) - 1):
                 #This is the last block of the last piece
                 last_piece_length = self.master_record.totalSizeInBytes() % self.manager.info_dictionary.piece_length
@@ -395,7 +395,7 @@ class Peer(object):
 
             msg = struct.pack('>iB3i', 13, 6, piece_index, block_index, block_length)
             self.send(msg)
-            self._pending_requests[piece_index][block_index] = True        
+            self._pending_requests[piece_index][block_index] = True
 
     def sendPiece(self, index, begin, byte_length, block):
         """piece: <len=0009+X><id=7><index><begin><block>"""
