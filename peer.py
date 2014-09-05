@@ -52,17 +52,16 @@ class Peer(object):
         self.manager = manager
         self.master_record = manager.master_record
 
-        self._pending_requests = {}
-        for index in range(self.master_record.numPieces()):
-            filesize = self.master_record.totalSizeInBytes()
-            piecesize = self.manager.info_dictionary['piece_length']
-            if ((index == self.master_record.numPieces() - 1) and
-                (filesize % piecesize != 0)):
-                num_blocks = math.ceil(filesize % piecesize,BLOCKSIZE)
-            else:
-                assert piecesize % BLOCKSIZE == 0
-                num_blocks = piecesize // BLOCKSIZE
-            self._pending_requests[index] = [False] * num_blocks
+        filesize = self.master_record.totalSizeInBytes()
+        piece_size = self.manager.info_dictionary['piece_length']
+        num_blocks = piece_size // BLOCKSIZE
+        num_full_pieces = filesize // piece_size
+        last_piece_size = filesize % piece_size
+
+        self._pending_requests = {index: [False] * num_blocks for index in range(num_full_pieces)}
+        if last_piece_size != 0:
+            self._pending_requests[num_full_pieces + 1] = [False] * (math.ceil(filesize % piece_size,BLOCKSIZE))
+
         assert len(self._pending_requests) == self.manager.master_record.numPieces()
 
         self._am_choking = True
