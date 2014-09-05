@@ -265,31 +265,9 @@ class Peer(object):
         # Contruct the handshake
         handshake_to_send = utilities.constructHandshake(self.manager.getInfoHash(), utilities.SELF_PEER_ID)
 
-        # send the handshake
         try:
             self.send(handshake_to_send)
-        except HummusError as e:
-            self.die()
-            logging.error(str(e))
-            return None
-
-        # receive the first byte of the response, make sure its an int of value 19
-        try:
-            (data,) = struct.unpack('>B',self.recv(1))
-        except HummusError as e:
-            self.die()
-            logging.error(str(e))
-            return None
-
-        if data != 19:
-            self.die()
-            logging.error("Ill-formed handshake response from peer.")
-            return None
-
-        # receive the rest of the handshake (67 bytes)
-        data = struct.pack('>B', 19)
-        try:
-            data.append(self.recv(67))
+            handshake = self.recv(68)
         except HummusError as e:
             self.die()
             logging.error(str(e))
