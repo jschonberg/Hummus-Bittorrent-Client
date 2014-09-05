@@ -108,10 +108,7 @@ class Peer(object):
         Return True if this Peer has at least one piece that we need
         Return False otherwise
         """
-        for piece_id in self._pieces_peer_has:
-            if self.master_record.isPieceNeeded(piece_id):
-                return True
-        return False
+        return any(self.master_record.isPieceNeeded(piece_id) for piece_id in self._pieces_peer_has)
 
     def getNumPendingRequests(self):
         count = 0
