@@ -55,7 +55,7 @@ class Peer(object):
         self._pending_requests = {}
         for index in range(self.master_record.numPieces()):
             filesize = self.master_record.totalSizeInBytes()
-            piecesize = self.manager.torrent_file['piece_length']
+            piecesize = self.manager.info_dictionary['piece_length']
             if ((index == self.master_record.numPieces() - 1) and
                 (filesize % piecesize != 0)):
                 num_blocks = math.ceil(filesize % piecesize,BLOCKSIZE)
@@ -407,7 +407,7 @@ class Peer(object):
             
             if piece_index == (self.master_record.numPieces() - 1) and block_index == (len(self._pending_requests[piece_index]) - 1):
                 #This is the last block of the last piece
-                last_piece_length = self.master_record.totalSizeInBytes() % self.manager.torrent_file.piece_length
+                last_piece_length = self.master_record.totalSizeInBytes() % self.manager.info_dictionary.piece_length
                 block_length = last_piece_length % BLOCKSIZE
             else:
                 block_length = BLOCKSIZE
@@ -495,7 +495,7 @@ class Peer(object):
         if byte_length > 32 * KILOBYTE:
             raise HummusError("Requested bytes is greater than 32KB")
 
-        starting_byte_index = self.manager.torrent_file.piece_length * index
+        starting_byte_index = self.manager.info_dictionary.piece_length * index
         if starting_byte_index + begin_byte + byte_length > self.master_record.totalSizeInBytes():
             raise HummusError("Requested " + str(byte_length) + " bytes, starting at byte " + str(starting_byte_index + begin_byte) + " which is greater than the total bytes in the file of " + str(self.master_record.totalSizeInBytes()))
 
@@ -522,7 +522,7 @@ class Peer(object):
             logging.info("Ignoring Piece message because uninterested")
             return None
 
-        starting_byte_index = self.manager.torrent_file.piece_length * index
+        starting_byte_index = self.manager.info_dictionary.piece_length * index
         total_length = starting_byte_index + begin_byte + len(data)
         if total_length > self.master_record.totalSizeInBytes():
             raise HummusError("Received " + str(len(data)) + " bytes, starting at byte " + str(starting_byte_index + begin_byte) + " which is greater than the total bytes in the file of " + str(self.master_record.totalSizeInBytes()))

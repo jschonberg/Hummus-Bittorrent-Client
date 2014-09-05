@@ -1,6 +1,7 @@
 import logging
 import socket
 import struct
+import bencode
 
 KILOBYTE = 1024 #Bytes in a KB
 BLOCKSIZE = 16 * KILOBYTE
@@ -41,10 +42,10 @@ def connectToPeer(ip_address, port):
         sock = None
 
     if sock is None:
-        logging.error("Could not connect to peer at "
+        logging.error("Could not connect to network at "
               + ip_address + ":" + str(port))
     else:
-        logging.info("Successfully connected to peer at "
+        logging.info("Successfully connected to network at "
               + str(ip_address) + ":" + str(port))
 
     return sock
@@ -103,6 +104,8 @@ def parseHandshake(handshake_message):
 
     return (info_hash, peer_id)
 
+#For Testing==
+if __name__ == '__main__':
 
 
 

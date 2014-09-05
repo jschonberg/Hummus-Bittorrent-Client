@@ -6,14 +6,14 @@ class MasterRecord(object):
     #----
     #Class Functions
     #----
-    def __init__(self, manager, torrent_file, dest_path):
+    def __init__(self, manager):
         self.manager = manager
-        self.torrent_file = torrent_file
+        self.info_dictionary = info_dictionary
 
         #For each piece create a record entry to track the state of download for that data
         #status can be "needed", "active" or "complete"
         #blocks[index] contains staged, but not yet written bytes
-        blocks = [bytearray()] * math.ceil(self.torrent_file.piece_length / BLOCK_SIZE) #Staged block data to be written to disk
+        blocks = [bytearray()] * math.ceil(self.info_dictionary.piece_length / BLOCK_SIZE) #Staged block data to be written to disk
         self._statusRecord = [{"status" : "needed",
                               "blocks" : blocks}] * self.numPieces() 
         self._byteFile = self.openFile()
