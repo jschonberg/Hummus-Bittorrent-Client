@@ -81,7 +81,9 @@ class Peer(object):
     #----
     #Utility Functions
     #----
-    def die(self):
+    def die(self, message=None):
+        if message:
+            logging.error(message)
         with self._alive_lock:
             self._alive = False
 
@@ -145,16 +147,14 @@ class Peer(object):
             self._sock = utilities.connectToPeer(self._ip_address, self._port)
             if self._sock == None:
                 #Could not create a connection, kill this peer
-                self.die()
-                logging.error("Couldn't connect to peer")
+                self.die("Couldn't connect to peer")
                 return None
 
             assert (self._ip_address, self._port) == self._sock.getpeername()
 
             self.shakeHands()
             if self.isAlive() == False or self._shaken_hands == False:
-                self.die()
-                logging.error("Couldn't shake hands")
+                self.die("Couldn't shake hands")
                 return None
 
         self._sock.settimeout(3)
@@ -194,8 +194,7 @@ class Peer(object):
             except socket.timeout:
                 logging.info("Peer timed out")
             except HummusError as e:
-                self.die()
-                logging.info("PE:" + str(e))
+                self.die("PE:" + str(e))
                 return None
 
             #Send a keep alive message
@@ -269,25 +268,21 @@ class Peer(object):
             self.send(handshake_to_send)
             handshake = self.recv(68)
         except HummusError as e:
-            self.die()
-            logging.error(str(e))
+            self.die(str(e))
             return None
 
         # parse response
         handshake_response = utilities.parseHandshake(data)
         if handshake_response is None:
-            self.die()
-            logging.error("Handshake response is invalid.")
+            self.die("Handshake response is invalid.")
             return None
 
         # verify response
         if handshake_response[0] != self.manager.getInfoHash():
-            self.die()
-            logging.error("Could not complete handshake. Info hash from peer does not match.")
+            self.die("Could not complete handshake. Info hash from peer does not match.")
             return None
         if handshake_response[1] != self._peer_id:
-            self.die()
-            logging.error("Could not complete handshake. Peer ID does not match.")
+            self.die("Could not complete handshake. Peer ID does not match.")
             return None
 
         self._shaken_hands = True
