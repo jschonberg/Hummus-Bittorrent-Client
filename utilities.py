@@ -10,13 +10,9 @@ BLOCKSIZE = 16 * KILOBYTE
 BLOCK_SIZE = 16384 #16KB
 SELF_PEER_ID = u'-HU0010-0HyZeTecrY0m'.encode('utf-8')
 
-class HummusError(RuntimeError):
-    def __init__(self, reason):
-        self.reason = reason
-    def __repr__(self):
-        return str(self.reason)
-    def __str__(self):
-        return str(self.reason)
+class HummusError(Exception):
+    def __init__(self, msg):
+        self.msg = msg
 
 def listen(port, manager):
     """Start listening for incoming connections on port
