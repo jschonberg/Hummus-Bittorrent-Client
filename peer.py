@@ -16,15 +16,6 @@ DOWNLOADED = 2
 
 
 class PeerError(HummusError):
-    """Thrown in case of Peer errors. Inherits HummusError.
-
-    Args:
-      msg (str): Human readable string describing the exception.
-
-    Attributes:
-      msg (str): Human readable string describing the exception.
-
-    """
     pass
 
 

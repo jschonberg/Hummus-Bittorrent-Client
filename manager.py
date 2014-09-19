@@ -17,15 +17,6 @@ MY_IP_ADDRESS = '74.212.183.186'
 
 
 class ManagerError(HummusError):
-    """Thrown in case of Manager class errors. Inherits HummusError.
-
-    Args:
-      msg (str): Human readable string describing the exception.
-
-    Attributes:
-      msg (str): Human readable string describing the exception.
-
-    """
     pass
 
 
