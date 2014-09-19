@@ -8,15 +8,6 @@ RE_DECIMAL = re.compile('\d')
 
 
 class BencodeError(HummusError):
-    """Thrown in case of Bencode errors. Inherits HummusError.
-
-    Args:
-      msg (str): Human readable string describing the exception.
-
-    Attributes:
-      msg (str): Human readable string describing the exception.
-
-    """
     pass
 
 
