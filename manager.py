@@ -19,6 +19,19 @@ MY_IP_ADDRESS = '74.212.183.186'
 class ManagerError(HummusError):
     pass
 
+class FileWrapper(object):
+    def __init__(self, f_path_name, f_len):
+        if not os.path.isfile(f_path_name):
+            # If the file didn't previously exists, create one
+            with open(f_path_name, mode='wb'):
+                pass
+        self.f_obj = open(f_path_name, 'r+b')
+        self.f_path_name = f_path_name
+        self.f_len = f_len
+
+    def __len__(self):
+        return self.f_len
+
 
 class Manager(object):
 
@@ -33,8 +46,6 @@ class Manager(object):
       MAX_PEERS (int): Maximum number of simoultaneous connections
 
     """
-
-    File = namedtuple('File', 'file_obj, file_path_name, byte_len')
     PORT = 6889
     MAX_PEERS = 30
 
@@ -66,7 +77,7 @@ class Manager(object):
             self.piece_len = metainfo['info']['piece length']
             self._initFiles(metainfo)
 
-        self.total_size = sum([x.byte_len for x in self._files])
+        self.total_size = sum(len(x) for x in self._files)
         self.num_pieces = ((self.total_size / self.piece_len) +
                            (1 if self.total_size % self.piece_len != 0
                             else 0))
@@ -157,27 +168,18 @@ class Manager(object):
           ManagerError if multi or single file mode cannot be determined
 
         """
-        def createFile(f_path_name, f_len):
-            if not os.path.isfile(f_path_name):
-                # If the file didn't previously exists, create one
-                with open(f_path_name, mode='wb'):
-                    pass
-            f_obj = open(f_path_name, 'r+b')
-            f = Manager.File(file_obj=f_obj,
-                             file_path_name=f_path_name,
-                             byte_len=f_len)
-            self._files.append(f)
 
         if "files" in metainfo['info'].keys():  # Multiple file torrent
             for info in metainfo['info']["files"]:
                 f_path_name = self._dest_path + "/".join(info['path'])
                 f_len = info['length']
-                createFile(f_path_name, f_len) 
+                self._files.append(FileWrapper(f_path_name, f_len))
+
         elif "length" in metainfo['info'].keys():  # Single file torrent
             f_path_name = '/'.join([self._dest_path,
                                    metainfo['info']['name']])
             f_len = metainfo['info']['length']
-            createFile(f_path_name, f_len)
+            self._files.append(FileWrapper(f_path_name, f_len))
         else:
             raise ManagerError("Cant determine single or multi file mode")
 
