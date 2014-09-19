@@ -443,8 +443,8 @@ class Peer(object):
         """Parse bitfield and mark pieces as data remote has to serve."""
         print "recvBitfield", length
 
-        chunk = self.recv(length)
-        print chunk.encode('hex')
+        chunk = self.recv(length - 1)
+        print "In recvBitfield, length: ", len(chunk), "data: ", repr(chunk)
         bits = bitstring.BitArray(hex=chunk.encode('hex'))
         for index, bit in enumerate(bits):
             if bit:
