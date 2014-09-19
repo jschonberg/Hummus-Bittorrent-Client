@@ -8,7 +8,6 @@ import math
 # import ipgetter
 import time
 from peer import Peer
-from collections import namedtuple
 from bencode import bencode, bdecode
 from utilities import HummusError, SELF_PEER_ID, BLOCKSIZE
 from threading import Lock, Thread
@@ -128,14 +127,14 @@ class Manager(object):
              or not self._peer_id or not self.PORT or not self._bytes_left)):
             raise ManagerError("Field for tracker request does not exist")
 
-        tracker_params = { 'info_hash', urllib.quote(self.info_hash),
-                            "peer_id": self._peer_id,
-                            'port', self.PORT,
-                            'uploaded', self._bytes_uploaded,
-                            'downloaded', self._bytes_downloaded,
-                            'left', self._bytes_left,
-                            'event', "started" if first_req else ""
-                            }
+        tracker_params = {'info_hash': self.info_hash,
+                          'peer_id': self._peer_id,
+                          'port': self.PORT,
+                          'uploaded': self._bytes_uploaded,
+                          'downloaded': self._bytes_downloaded,
+                          'left': self._bytes_left,
+                          'event': "started" if first_req else ""
+                          }
         if hasattr(self, '_tracker_id'):
             tracker_params['trackerid'] = self._tracker_id
 

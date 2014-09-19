@@ -1,20 +1,16 @@
-import datetime
-import logging
+import sys
 from manager import Manager
 from threading import Thread
 
 if __name__ == '__main__':
-    GREETING = "<--Welcome to the Hummus Bittorrent client!-->\n"
-    TORRENT_PATH_MSG = "Please enter the path(s) of torrent file(s): "
-    DEST_PATH_MSG = "Please enter the path of where you would " \
-                    "like to save this torrent: "
+    if len(sys.argv) != 3:
+        print "You need a torrent file and destination path to run Hummus"
+        exit(1)
 
-    logging.info("Hummus started at " + str(datetime.datetime.now()))
+    torrent_paths = [sys.argv[1]]
+    dest_path = sys.argv[2]
+    GREETING = "<--Welcome to the Hummus Bittorrent client!-->\n"
     print GREETING
-    torrent_paths = raw_input(TORRENT_PATH_MSG).split()
-    print ""
-    dest_path = raw_input(DEST_PATH_MSG)
-    print ""
 
     managers = []
     threads = []
@@ -27,7 +23,7 @@ if __name__ == '__main__':
         threads.append(t)
         # t.start()
         m.execute()
-        
+
     while True:
         #TODO: What is the main program exit condition?
         pass
