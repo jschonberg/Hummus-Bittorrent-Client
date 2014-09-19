@@ -199,11 +199,14 @@ class Manager(object):
             self._peers = [p for p in self._peers if not p.isAlive()]
             #TODO: For dead peers, don't just remove them but make sure their actively held pieces are marked as free
             self._startNewPeers()
-            request = self._createTrackerReq()
-            response = self._contactTracker(request)
-            self._peer_addresses = self._parsePeers(response)
+            self._peer_addresses = self._update_peers()
             time.sleep(self._min_interval)
             #TODO: When do we kill the manager? When the file is done?
+
+    def _update_peers(self):
+        request = self._createTrackerReq()
+        response = self._contactTracker(request)
+        return self._parsePeers(response)
 
     def _renderInfoHash(self):
         """Return 20-byte SHA1 hash of the value of the info key from the
