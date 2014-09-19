@@ -21,7 +21,12 @@ if __name__ == '__main__':
 
     for path in torrent_paths:
         m = Manager(path, dest_path)
-        t = Thread(target=m.start)
+        t = Thread(target=m.execute)
+        t.daemon = True
         managers.append(m)
         threads.append(t)
         t.start()
+
+    while True:
+        #TODO: What is the main program exit condition?
+        pass

@@ -1,24 +1,35 @@
+import bitstring
 import logging
 import math
-from threading import Lock
 import socket
+import struct
 import time
 import utilities
-from utilities import HummusError, KILOBYTE
-import bitstring
-import struct
+from utilities import BLOCKSIZE, HummusError, KILOBYTE
+from threading import Lock
+# from pudb import set_trace
 
-BLOCKSIZE = utilities.BLOCKSIZE
+NEEDED = 0
+REQUESTED = 1
+DOWNLOADED = 2
+
+
+class PeerError(HummusError):
+    """Thrown in case of Peer errors. Inherits HummusError.
+
+    Args:
+      msg (str): Human readable string describing the exception.
+
+    Attributes:
+      msg (str): Human readable string describing the exception.
+
+    """
+    pass
+
 
 class Peer(object):
-    """
-    Peer object creates a connection to a remote peer, if not given a live
-    socket. Upon calling .execute() on a peer, it will begin to download and
-    upload data to/from the remote peer
-    """
-    #----
-    #Constants
-    #----
+    """TODO"""
+
     KEEPALIVE_MSGID = -1
     CHOKE_MSGID = 0
     UNCHOKE_MSGID = 1
@@ -30,145 +41,103 @@ class Peer(object):
     PIECE_MSGID = 7
     CANCEL_MSGID = 8
     PORT_MSGID = 9
-    VALID_IDS = range(-1,10)
+    VALID_IDS = range(-1, 10)
+    MAX_PENDING = 20  # By convention, <20 requests at a time
 
-    MAX_PENDING = 20  #By convention, <20 requests at a time
-
-    #----
-    #Class Functions
-    #----
-    def __init__(self, manager, peer_id, ip_address, port, sock=None):
+    def __init__(self, manager, ip_address, port, sock=None):
         self._alive_lock = Lock()
         with self._alive_lock:
             self._alive = True
-        self._shaken_hands = False if sock == None else True
-        self._data_buffer = []
-        self._last_msg_time = None
-        self._peer_id = peer_id #Unique id from tracker for remote peer
+        self._sock = sock
         self._ip_address = ip_address
         self._port = port
-        self._pieces_peer_has = set()
-        self._actively_held_pieces = set() #piece_indices of pieces we have marked as active in master record
+        self.manager = manager
+        self.ID = str(ip_address) + str(port)
+
+        self._pieces_remote_serves = set()
+
         self._am_choking = True
         self._am_interested = False
         self._peer_choking = True
         self._peer_interested = False
-        self._recv_dispatch = {}
-        self._sock = sock
 
-        self.manager = manager
-        self.master_record = manager.master_record
-
-        filesize = self.master_record.totalSizeInBytes()
-        piece_size = self.manager.info_dictionary['piece_length']
-        num_blocks = piece_size // BLOCKSIZE
-        num_full_pieces = filesize // piece_size
-        last_piece_size = filesize % piece_size
-
-        self._pending_requests = {index: [False] * num_blocks for index in range(num_full_pieces)}
-        if last_piece_size != 0:
-            self._pending_requests[num_full_pieces + 1] = [False] * (math.ceil(filesize % piece_size,BLOCKSIZE))
-
-        assert len(self._pending_requests) == self.manager.master_record.numPieces()
+        self._pending_requests = []
+        for i in xrange(self.manager.num_pieces):
+            self._pending_requests.append([NEEDED] * self._numBlocks(i))
 
     def __del__(self):
         self.die()
         if self._sock:
             self._sock.close()
-        for piece in self._actively_held_pieces:
-            result = self.master_record.makePieceInactive(piece)
-            assert result != None
 
-    #----
-    #Utility Functions
-    #----
     def die(self, message=None):
+        """Log error message and kill this peer. Thread safe."""
         if message:
-            logging.error(message)
+            print "DIE: " + message
         with self._alive_lock:
             self._alive = False
 
-    def isAlive(self):
-        with self._alive_lock:
-            return self._alive
+    def _interestedInPeer(self):
+        """Return True if remote has at least one piece that we need"""
+        return any(self.manager.isPieceNeeded(piece) for piece in
+                   self._pieces_remote_serves)
 
-    def isKeepAliveMsg(self, chunk):
-        (data,) = struct.unpack('>i', chunk)
-        return data == 0
-
-    def stayConnected(self):
-        """
-        Return True if last msg received from peer was <=2min ago
-        Return false otherwise
-        """
-        #TODO:Rename this and should be called by manager
-        pass
-
-    def interestedInPeer(self):
-        """
-        Return True if this Peer has at least one piece that we need
-        Return False otherwise
-        """
-        return any(self.master_record.isPieceNeeded(piece_id) for piece_id in self._pieces_peer_has)
-
-    def getNumPendingRequests(self):
+    def _getNumPendingRequests(self):
+        """Return the number of unfulfilled data requests sent to remote."""
         count = 0
-        for piece in self._pending_requests:
-            for block in self._pending_requests[piece]:
-                if self._pending_requests[piece][block] == True:
-                    count = count + 1
-
+        for pending_blocks in self._pending_requests:
+            count += sum([x for x in pending_blocks if x == REQUESTED])
         return count
 
-    def createSocket(self):
-        #For testing purposes.
-        self._sock = utilities.connectToPeer(self._ip_address, self._port)
+    def _connectAndShake(self):
+        """If necessary, open connection with remote and shake hands.
+
+        Raises:
+          PeerError if can't connect or can't shake hands
+
+        """
+        if self._sock:
+            self._shaken_hands = True
+            return
+        else:
+            self._sock = utilities.connectToPeer(self._ip_address,
+                                                 self._port)
+            if not self._sock:
+                raise PeerError("Could not connect to peer")
+            self.shakeHands()
 
     def execute(self):
-        """
-        Begin sending and receiving data with remote peer
-        """
+        """Open connection with remote and download/upload data with them."""
+
         self._recv_dispatch = {
-            self.KEEPALIVE_MSGID : self.recvKeepAlive,
-            self.CHOKE_MSGID : self.recvChoke,
-            self.UNCHOKE_MSGID : self.recvUnchoke,
-            self.INTERESTED_MSGID : self.recvInterested,
-            self.NOTINTERESTED_MSGID : self.recvNotInterested,
-            self.HAVE_MSGID : self.recvHave,
-            self.BITFIELD_MSGID : self.recvBitfield,
-            self.REQUEST_MSGID : self.recvRequest,
-            self.PIECE_MSGID : self.recvPiece,
+            self.CHOKE_MSGID: self.recvChoke,
+            self.UNCHOKE_MSGID: self.recvUnchoke,
+            self.INTERESTED_MSGID: self.recvInterested,
+            self.NOTINTERESTED_MSGID: self.recvNotInterested,
+            self.HAVE_MSGID: self.recvHave,
+            self.BITFIELD_MSGID: self.recvBitfield,
+            self.REQUEST_MSGID: self.recvRequest,
+            self.PIECE_MSGID: self.recvPiece,
         }
 
-        if self._sock == None:
-            #initiator peer (from manager). connect to peer and shake hands.
-            self._sock = utilities.connectToPeer(self._ip_address, self._port)
-            if self._sock == None:
-                #Could not create a connection, kill this peer
-                self.die("Couldn't connect to peer")
-                return None
-
-            assert (self._ip_address, self._port) == self._sock.getpeername()
-
-            self.shakeHands()
-            if self.isAlive() == False or self._shaken_hands == False:
-                self.die("Couldn't shake hands")
-                return None
+        try:
+            self._connectAndShake()
+        except PeerError as e:
+            self.die("PE: " + str(e))
+            return
 
         self._sock.settimeout(3)
+
         self.sendBitfield()
 
-        while True:
-            #Unchoke them
+        while self.isAlive():
+            self.sendHaveMsgs()
+
             if self._am_choking:
                 self.sendUnchoke()
+                self._am_choking = False
 
-            #Send them what pieces we have
-            if self._peer_interested:
-                self.sendHaveMsgs()
-
-            #Determine if we're interested. Update peer if interest state changes
-            if self.interestedInPeer():
+            if self._interestedInPeer():
                 if not self._am_interested:
                     self.sendInterested()
                     self._am_interested = True
@@ -177,7 +146,6 @@ class Peer(object):
                     self.sendNotInterested()
                     self._am_interested = False
 
-            #Send out requesteds for needed blocks
             if not self._peer_choking and self._am_interested:
                 self.sendRequestMsgs()
 
@@ -186,340 +154,324 @@ class Peer(object):
                 for _ in range(max_msgs):
                     chunk = self.recv(4)
                     if self.isKeepAliveMsg(chunk):
-                        self._recv_dispatch[self.KEEPALIVE_MSGID]()
+                        self.recvKeepAlive()
                     else:
                         chunk += self.recv(1)
                         (msg_id, msg_length) = self.parseMsgType(chunk)
                         self._recv_dispatch[msg_id](msg_length)
             except socket.timeout:
-                logging.info("Peer timed out")
+                print "Peer timed out"
             except HummusError as e:
                 self.die("PE:" + str(e))
-                return None
+                return
 
-            #Send a keep alive message
             if self.isAlive():
                 self.sendKeepAlive()
 
-    #----
-    #Networking Functions
-    #----
     def send(self, data):
-        """
-        Send entirety of data to remote peer
-        Raises HummusError if socket connection is broken
+        """Send entirety of data to remote peer.
+
+        Raises:
+          PeerError if socket connection is broken
+
         """
         total_sent = 0
         while total_sent < len(data):
             sent = self._sock.send(data[total_sent:])
             if sent == 0:
-                raise HummusError("Error: socket connect to peer:" + self._peer_id + " broken")
+                raise PeerError("".join(["Error: socket connect to peer: ",
+                                self._peer_id, " broken"]))
             total_sent = total_sent + sent
 
-
     def recv(self, length=BLOCKSIZE):
-        """
-        Get length bytes from Peer
-        Returns bytestring of len length. Raises HummusError if connection is broken
-        """
+        """Get length bytes from Peer.
 
+        Args:
+          length (int): Number of bytes to receive
+        Returns:
+          bytestring of len length.
+
+        Raises:
+          PeerError if connection is broken
+
+        """
         chunks = []
         bytes_recd = 0
         while bytes_recd < length:
             chunk = self._sock.recv(min(length - bytes_recd, 2048))
             if chunk == '':
-                raise HummusError("Error: could not receive data from peer:" + self._peer_id + ". Socket connection broken")
+                raise PeerError("".join(["Socket connection with ",
+                                self._peer_id, " broken."]))
             chunks.append(chunk)
             bytes_recd = bytes_recd + len(chunk)
-
         return ''.join(chunks)
 
-    #----
-    #Messaging Functions
-    #----
     def parseMsgType(self, data):
-        """
-        Parse and return (msg_id,msg_length)
-        Throws HummusError if can't determine valid message type or length is nonsensical
+        """Parse data and return (msg_id, msg_length)
+ 
+        Raises:
+          PeerError if invalid message type or length
+
         """
         if len(data) != 5:
-            raise HummusError("Message type not readable. Length is more than 5 bytes")
+            raise PeerError("Message length more than 5 bytes.")
 
-        (msg_length, msg_id) = struct.unpack('>iB',data[0:4], data[4])
-        if msg_id not in VALID_IDS:
-            raise HummusError("MSG ID not a valid ID number")
-
+        (msg_length, msg_id) = struct.unpack('>IB', data[0:4], data[4])
+        if msg_id not in self.VALID_IDS:
+            raise PeerError("MSG ID not a valid ID number")
         return (msg_id, msg_length)
 
-
     def shakeHands(self):
-        # Contruct the handshake
-        handshake_to_send = utilities.constructHandshake(self.manager.getInfoHash(), utilities.SELF_PEER_ID)
+        """Initiate a handshake with remote, parse and validate response
 
-        try:
-            self.send(handshake_to_send)
-            handshake = self.recv(68)
-        except HummusError as e:
-            self.die(str(e))
-            return None
+        Sets:
+          _peer_id to remote ID on SUCCESS
+          _shaken_hands to True on SUCCESS
 
-        # parse response
-        handshake_response = utilities.parseHandshake(data)
-        if handshake_response is None:
-            self.die("Handshake response is invalid.")
-            return None
+        Raises:
+          PeerError if handshake response is invalid or nonexistant
 
-        # verify response
-        if handshake_response[0] != self.manager.getInfoHash():
-            self.die("Could not complete handshake. Info hash from peer does not match.")
-            return None
-        if handshake_response[1] != self._peer_id:
-            self.die("Could not complete handshake. Peer ID does not match.")
-            return None
-
+        """
+        initiate = utilities.constructHandshake(self.manager.info_hash,
+                                                utilities.SELF_PEER_ID)
+        self.send(initiate)
+        data = self.recv(68)
+        response = utilities.parseHandshake(data)
+        if not response:
+            raise PeerError("Handshake response is invalid.")
+        if response[0] != self.manager.info_hash:
+            raise PeerError("Received Info hash doesn't match in handshake.")
+        self._peer_id = response[1]
         self._shaken_hands = True
+        print ">>SUCCESSFULLY SHOOK HANDS!!!<<"
 
-    #====Sending messages
+    def isAlive(self):
+        """Return whether this peer is alive. Thread safe."""
+        with self._alive_lock:
+            return self._alive
+
+    def isKeepAliveMsg(self, chunk):
+        """Return true if chunk binary data is a keep alive message."""
+        if len(chunk) != 4:
+            return False
+        (data,) = struct.unpack('>I', chunk)
+        return data == 0
+
     def sendKeepAlive(self):
-        """keep-alive: <len=0000>"""
-        chunk = struct.pack('>i', 0)
+        """Pack and send keep-alive: <len=0000>"""
+        chunk = struct.pack('>I', 0)
         self.send(chunk)
 
     def sendChoke(self):
-        """choke: <len=0001><id=0>"""
-        chunk = struct.pack('>iB',1, 0)
+        """Pack and send choke: <len=0001><id=0>"""
+        chunk = struct.pack('>IB', 1, 0)
         self.send(chunk)
 
     def sendUnchoke(self):
-        """unchoke: <len=0001><id=1>"""
-        chunk = struct.pack('>iB', 1, 1)
+        """Pack and send unchoke: <len=0001><id=1>"""
+        chunk = struct.pack('>IB', 1, 1)
         self.send(chunk)
 
     def sendInterested(self):
-        """interested: <len=0001><id=2>"""
-        chunk = struct.pack('>iB', 1, 2)
+        """Pack and send interested: <len=0001><id=2>"""
+        chunk = struct.pack('>IB', 1, 2)
         self.send(chunk)
 
     def sendNotInterested(self):
-        """not interested: <len=0001><id=3>"""
-        chunk = struct.pack('>iB', 1, 3)
+        """Pack and send not interested: <len=0001><id=3>"""
+        chunk = struct.pack('>IB', 1, 3)
         self.send(chunk)
 
     def sendHaveMsgs(self):
-        completed_pieces = self.master_record.getCompletedPieces()
+        """For each piece downloaded, send a have message to remote."""
+        completed_pieces = self.manager.getCompletedPieces()
         for piece_id in completed_pieces:
             self.sendHave(piece_id)
 
     def sendHave(self, piece_id):
-        """have: <len=0005><id=4><piece index>"""
-        chunk = struct.pack('>iBi', 5, 4, piece_id)
+        """Pack and send have: <len=0005><id=4><piece index>"""
+        chunk = struct.pack('>IBI', 5, 4, piece_id)
         self.send(chunk)
 
     def sendBitfield(self):
-        """bitfield: <len=0001+X><id=5><bitfield>"""
-        num_pieces = self.master_record.getNumPieces()
-        completed_pieces = self.master_record.getCompletedPieces()
-        bits = bitstring.BitArray(num_pieces)
-        for index in completed_pieces:
+        """Pack and send bitfield: <len=0001+X><id=5><bitfield>"""
+        bits = bitstring.BitArray(self.manager.num_pieces)
+        for index in self.manager.getCompletedPieces():
             bits[index] = True
-
-        if len(bits) % 4 != 0:
-            bits += 4 - len(bits) % 4
-        byte_length = len(bits) // 4
-
-        chunk = struct.pack('>iB', byte_length + 1, 5)
+        chunk = struct.pack('>IB', len(bits.tobytes()) + 1, 5)
+        chunk += bits.tobytes()
         self.send(chunk)
-        chunk = bits.hex
+
+    def sendPiece(self, index, begin, block):
+        """Pack and send piece: <len=0009+X><id=7><index><begin><block>"""
+        msg = struct.pack('>IB2I', 9 + len(block), 7, index, begin)
+        chunk = msg + block
+        self.send(chunk)
+
+    def _neededBlocks(self, piece):
+        """Return list of needed block indices in piece"""
+        needed = []
+        for i, state in enumerate(self._pending_requests[piece]):
+            if state == NEEDED:
+                needed.append(i)
+        return needed
+
+    def _getNewRequests(self):
+        """Return an appropriately sized list of request to be made.
+
+        Will prioritize making requests for pieces already held first before
+        generating requests for new pieces. Will pieces ensure requests for
+        new pieces are activel held with Manager.
+
+        Returns:
+          list(tuple(piece id, block id)) for each request that should be
+          sent to remote. Will be of length such that pending requests +
+          these new requests <= MAX_PENDING allowed requests.
+
+        """
+        new_reqs = []
+        num_needed = self.MAX_PENDING - self._getNumPendingRequests()
+
+        # Enqueue requests for blocks in pieces we already hold
+        for p in self.manager.activelyHeldPieces(self):
+            new_reqs += [(p, x) for x in self._neededBlocks(p)]
+
+        # If needed, enqueue requests for blocks in a new piece
+        while num_needed - len(new_reqs) > 0:
+            possibles = set.intersection(self.manager.getNeededPieces(),
+                                         self._pieces_remote_serves)
+            if len(possibles) == 0:
+                break
+            new_piece = possibles.pop()
+            success = self.manager.makeActive(new_piece)
+            if not success:
+                raise PeerError("Could not make piece active.")
+            new_reqs += [((new_piece, x) for x in
+                          self._neededBlocks(new_piece))]
+
+        return new_reqs[:self.MAX_PENDING]
+
+    def sendRequestMsg(self, index, begin, length):
+        """Pack and send request: <len=0013><id=6><index><begin><length>"""
+        chunk = struct.pack('>IB3I', 13, 6, index, begin, length)
         self.send(chunk)
 
     def sendRequestMsgs(self):
-        """request: <len=0013><id=6><index><begin><length>"""
+        """Send requests for more blocks, if pending reqs < MAX_PENDING"""
+        new_reqs = self._getNewRequests()
+        for req in new_reqs:
+            piece = req[0]
+            block = req[1]
+            chunk = struct.pack('>IB3I', 13, 6, piece, block * BLOCKSIZE,
+                                self.manager.bytesInBlock(piece, block))
+            self.send(chunk)
+            self._pending_requests[piece][block] = REQUESTED
 
-        def newPiecesToRequest():
-            #Calculate the pieces to request
-            needed = self.master_record.getNeededPieces()
-            peer_has = self._pieces_peer_has
-            already_active = self.master_record.getActivePieces()
-            to_request = set.intersection(needed,peer_has).difference(already_active)
-            return to_request
-
-        #Compile set of new requests to send out
-        new_reqs = set() #(piece index, block index)
-        needed = self.MAX_PENDING - self.getNumPendingRequests()
-        assert needed >= 0
-        while needed  > 0:
-            #Grab requests from existing active pieces first
-            for piece in self._actively_held_pieces:
-                for block in self._pending_requests[piece]:
-                    if self._pending_requests[piece][block] == False and (piece, block) not in new_reqs and needed > 0:
-                            new_reqs.add((piece,block))
-                            needed = needed - 1
-
-            if needed > 0:
-                possibles = newPiecesToRequest()
-                if len(possibles) == 0:
-                    break
-                to_activate = possibles.pop()
-                success = self.master_record.makePieceActive(to_activate)
-                if success == False:
-                    continue
-                elif success == None:
-                    raise HummusError("Peer tried to activate a piece at index that does not exist according to master record")
-                else:
-                    self._actively_held_pieces.add(to_activate)
-
-        #Send all new requests and then mark them as pending
-        for reqs in new_reqs:
-            piece_index = reqs[0]
-            block_index = reqs[1]
-
-            if piece_index == (self.master_record.numPieces() - 1) and block_index == (len(self._pending_requests[piece_index]) - 1):
-                #This is the last block of the last piece
-                last_piece_length = self.master_record.totalSizeInBytes() % self.manager.info_dictionary.piece_length
-                block_length = last_piece_length % BLOCKSIZE
-            else:
-                block_length = BLOCKSIZE
-
-            msg = struct.pack('>iB3i', 13, 6, piece_index, block_index, block_length)
-            self.send(msg)
-            self._pending_requests[piece_index][block_index] = True
-
-    def sendPiece(self, index, begin, byte_length, block):
-        """piece: <len=0009+X><id=7><index><begin><block>"""
-        msg = struct.pack('>4i', 9+byte_length, 7, index, begin)
-        self.send(msg)
-        self.send(block)
-
-
-    #====Receiving messages
     def recvKeepAlive(self):
         """"keep-alive: <len=0000>"""
-        self._last_msg_time = time.time()
+        # TODO: self._last_msg_time = time.time()
+        pass
 
     def recvChoke(self, length=None):
-        """choke: <len=0001><id=0>"""
+        """Set peer choking to True."""
         self._peer_choking = True
 
     def recvUnchoke(self, length=None):
-        """unchoke: <len=0001><id=1>"""
+        """Set peer choking to false."""
         self._peer_choking = False
 
     def recvInterested(self, length=None):
-        """interested: <len=0001><id=2>"""
+        """Set peer interested to true"""
         self._peer_interested = True
 
     def recvNotInterested(self, length=None):
-        """not interested: <len=0001><id=3>"""
+        """Set peer interested to false"""
         self._peer_interested = False
 
     def recvHave(self, length=None):
-        """have: <len=0005><id=4><piece index>"""
+        """Mark piece as data remote has to serve.
+
+        Raises:
+          PeerError if have message is illformed or for index out of range.
+
+        """
         if length != 5:
-            raise HummusError("\"Have\" message does not have the proper length")
+            raise PeerError("\"Have\" message is not length 5.")
 
         chunk = self.recv(4)
-        (piece_index,) = struct.unpack('>i',chunk)
-        assert piece_index >= 0
-        assert piece_index < self.master_record.numPieces()
-        self._pieces_peer_has.add(piece_index)
+        (piece_index,) = struct.unpack('>I', chunk)
+        if piece_index >= self.manager.num_pieces:
+            raise PeerError("\"Have\" message index is out of range.")
+        self._pieces_remote_serves.add(piece_index)
 
     def recvBitfield(self, length):
-        """bitfield: <len=0001+X><id=5><bitfield>"""
-        if (length - 1) < self.master_record.numPieces():
-            raise HummusError("\"Bitfield\" length is less than number of total pieces")
+        """Parse bitfield and mark pieces as data remote has to serve."""
+        if (length - 1) != self.manager.num_pieces:
+            raise PeerError("\"Bitfield\" length != number of pieces")
 
         chunk = self.recv(length)
         bits = bitstring.BitArray(data=chunk)
-        index = 0
-        for bit in bits:
-            if bit == 1:
-                if index >= self.master_record.numPieces():
-                    raise HummusError("Piece index in bitstring greater than total number of pieces")
-                self._pieces_peer_has.add(index)
-            index = index + 1
+        for index, bit in enumerate(bits):
+            if bit:
+                self._pieces_remote_serves.add(index)
 
     def recvRequest(self, length=None):
-        """request: <len=0013><id=6><index><begin><length>"""
+        """Receive request for data and send data to remote.
+
+        If remote requests data off the end of the file, will return data up
+        to the end of the file
+
+        Spec:
+          request: <len=0013><id=6><index><begin><length>
+
+        Raises:
+          PeerError if request is malformed or we don't have requested piece.
+        """
         if length != 13:
-            raise HummusError("\"Request\" length is not 13")
+            raise PeerError("\"Request\" length is not 13.")
 
         chunk = self.recv(12)
-        (index, begin_byte, byte_length) = struct.unpack('>3i')
+        (index, begin_byte, byte_length) = struct.unpack('>3I')
 
-        if self._peer_choking or self._am_choking:
-            logging.info("Ignoring Request due to choking")
-            return None
-        if self._peer_interested == False:
-            logging.info("Ignoring Request due to uninterested peer")
-            return None
-
-        if self.master_record.isPieceCompleted(index) == False:
-            logging.info("Don't have piece requested by peer")
-            return None
-
+        # Validation
+        if self._am_choking:
+            print "Ignoring Request due to choking."
+            return
+        if not self._peer_interested:
+            raise PeerError("Remote requesting data but is marked as not "
+                            "interested.")
+        if index not in self.manager.getCompletedPieces():
+            raise PeerError("Don't have piece requested by remote.")
         if index >= self.master_record.numPieces():
-            raise HummusError("Index from Request is greater than number of pieces")
+            raise PeerError("Index from Request is greater than number of "
+                            "pieces")
 
-        if byte_length > 32 * KILOBYTE:
-            raise HummusError("Requested bytes is greater than 32KB")
-
-        starting_byte_index = self.manager.info_dictionary.piece_length * index
-        if starting_byte_index + begin_byte + byte_length > self.master_record.totalSizeInBytes():
-            raise HummusError("Requested " + str(byte_length) + " bytes, starting at byte " + str(starting_byte_index + begin_byte) + " which is greater than the total bytes in the file of " + str(self.master_record.totalSizeInBytes()))
-
-        chunk = self.master_record.readData(index, begin_byte, byte_length)
-        if chunk == None:
-            raise HummusError("Could not read bytes from master record")
+        # Send data requested to remote
+        chunk = self.manager.readData(index, begin_byte, byte_length)
         assert length(chunk) == byte_length
-
         self.sendPiece(index, begin_byte, byte_length, chunk)
 
     def recvPiece(self, length):
-        """piece: <len=0009+X><id=7><index><begin><block>"""
+        """Receive and save data from remote.
+
+        Spec:
+          piece: <len=0009+X><id=7><index><begin><block>
+
+        Raises:
+          PeerError if remote sends none or illformed data
+        """
         if length <= 9:
-            raise HummusError("Piece request length is not greater than 9")
-
+            raise PeerError("Remote did not send any file data.")
         chunk = self.recv(length - 1)
-        struct_param = '>2i%sB' % (length - 9)
-        (index, begin_byte, data) = struct.unpack(struct_param, chunk)
+        encoding = '>2I%ss' % str(length - 9)
+        (index, offset, data) = struct.unpack(encoding, chunk)
 
-        if self._am_choking:
-            logging.info("Ignoring Piece message due to choking")
-            return None
-        if self._am_interested == False:
-            logging.info("Ignoring Piece message because uninterested")
-            return None
+        if not self._am_interested:
+            print "Ignoring piece message because uninterested"
+            return
 
-        starting_byte_index = self.manager.info_dictionary.piece_length * index
-        total_length = starting_byte_index + begin_byte + len(data)
-        if total_length > self.master_record.totalSizeInBytes():
-            raise HummusError("Received " + str(len(data)) + " bytes, starting at byte " + str(starting_byte_index + begin_byte) + " which is greater than the total bytes in the file of " + str(self.master_record.totalSizeInBytes()))
-
-        #If the bytes reach to the end of the file, we need to keep them all. Otherwise, we need to slice off the remnant bytes.
-        blocks = len(data) // BLOCKSIZE
-        if total_length == self.master_record.totalSizeInBytes():
-            blocks = blocks + 1
-        else:
-            data = data[:(blocks * BLOCKSIZE)]
-
-        self.master_record.saveData(index, begin_byte, data)
-
-        for block in range(blocks):
-            self._pending_requests[index][begin_byte // BLOCKSIZE + block] == False
-
-        if self.master_record.isPieceNeeded(index) == False:
-            self._actively_held_pieces.remove(index)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        begin_byte = self.manager.piece_len * index + offset
+        self.master_record.saveData(begin_byte, data)
+        blocks = self.manager.blocksEncompassed(begin_byte, len(data))
+        for piece, block in blocks:
+            self._pending_requests[piece][block] == DOWNLOADED
