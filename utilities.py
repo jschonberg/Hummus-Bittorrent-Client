@@ -20,6 +20,9 @@ class HummusError(Exception):
     def __init__(self, msg):
         self.msg = msg
 
+    def __str__(self):
+        return self.msg
+
 
 def connectToPeer(ip_address, port):
     """Connect to peer at ip_address:port

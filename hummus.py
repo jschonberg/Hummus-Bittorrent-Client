@@ -25,8 +25,9 @@ if __name__ == '__main__':
         t.daemon = True
         managers.append(m)
         threads.append(t)
-        t.start()
-
+        # t.start()
+        m.execute()
+        
     while True:
         #TODO: What is the main program exit condition?
         pass

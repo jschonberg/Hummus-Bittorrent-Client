@@ -68,6 +68,7 @@ class Manager(object):
         self.info_hash = self._renderInfoHash()
 
         self._files = []
+        self._files_lock = Lock()
         with open(self._torrent_path, mode='r') as f:
             metainfo = bdecode(f.read())
             self._tracker_url = metainfo['announce']
@@ -89,6 +90,11 @@ class Manager(object):
         self._min_interval = response['min interval']
         if 'tracker id' in response.keys():
             self._tracker_id = response['tracker id']
+
+        self._pieces_ledger = ["free"] * self.num_pieces
+        self._pieces_ledger_lock = Lock()
+        self._pieces_data = [[]] * self.num_pieces
+        self._pieces_data_lock = Lock()
 
     def __del__(self):
         pass
@@ -199,7 +205,9 @@ class Manager(object):
                     p = Peer(self, ip_address, port)
                     t = Thread(target=p.execute)
                     self._peers.append(p)
-                    t.start()
+                    print "MANAGER CREATING PEER: ", p.ID
+                    # t.start()
+                    p.execute()
 
     def execute(self):
         while self.isAlive():
@@ -299,53 +307,67 @@ class Manager(object):
             size = self.total_size % BLOCKSIZE
             return (size if size != 0 else BLOCKSIZE)
 
-    def blocksEncompassed(self, begin_byte, len):
-        """Return list of blocks fully encompassed by range(begin_byte,len).
-        
+    def blocksEncompassed(self, begin, length):
+        """Return list of blocks fully encompassed by range(begin,len).
+
         Will return only block indices where the entirety of the block lies
-        within [begin_byte:begin_byte+len]
-        
+        within [begin:begin+len]
+
         Returns:
           list(tuple(piece index, block index))
-        
-        """
-        pass
 
-    def isPieceNeeded(self, piece_id):
-        """Return True if piece_id is not alredy downloaded."""
-        ##TODO -- Needs to be thread safe
-        pass
+        """
+        blocks = []
+        for p_index in xrange(self.num_pieces):
+            byte = p_index * self.piece_len
+            for b_index in xrange(self.numBlocks(p_index)):
+                byte += self.bytesInBlock(p_index, b_index)
+                if byte >= begin and byte < (begin + length):
+                    blocks.append((p_index, b_index))
+        return blocks
+
+    def isPieceNeeded(self, piece):
+        """Return True if piece is not alredy downloaded and not active."""
+        if piece < 0 or piece >= self.num_pieces:
+            raise ManagerError("Piece index out of range in isPieceNeeded")
+        with self._pieces_ledger_lock:
+            return self._pieces_ledger[piece] == "free"
 
     def getCompletedPieces(self):
-        """Returns a list of piece indices that are completely downloaded."""
-        ##TODO -- Needs to be thread safe
-        pass
+        """Returns a set of piece indices that are completely downloaded."""
+        with self._pieces_ledger_lock:
+            return set([x for x in self._pieces_ledger if x == "downloaded"])
 
     def getNeededPieces(self):
         """Return the set of piece_indices not downloaded and not active"""
-        ##TODO -- Needs to be thread safe
-        pass
+        with self._pieces_ledger_lock:
+            return set([x for x in self._pieces_ledger if x == "free"])
 
     def activelyHeldPieces(self, peer):
-        """Return a list of piece indices held by peer.
+        """Return a set of piece indices held by peer.
 
         Args:
           peer (Peer): Peer object to query against
 
         """
-        ##TODO -- Needs to be thread safe
-        pass
+        with self._pieces_ledger_lock:
+            return set([x for x in self._pieces_ledger if x == peer.ID])
 
-    def makeActive(self, peer, piece_index):
-        """Set piece_index as actively held by peer.
+    def makeActive(self, peer, piece):
+        """Set piece as actively held by peer.
 
         Returns:
           True on SUCCESS
-          False if index is wrong or piece is already active.
+          False if index is wrong or piece is already active or downloaded.
 
         """
-        ##TODO -- Needs to be thread safe
-        pass
+        if piece < 0 or piece >= self.num_pieces:
+            return False
+        with self._pieces_ledger_lock:
+            if self._pieces_ledger[piece] == "free":
+                self._pieces_ledger[piece] == peer.ID
+                return True
+        return False
 
     def readData(self, piece_index, begin_offset, length):
         """Read and return bytes from file.
@@ -362,7 +384,8 @@ class Manager(object):
           if error occur during read.
 
         """
-        pass
+        print "TRYING TO READ: ", piece_index, begin_offset, length
+        return [0]*length
 
     def saveData(self, begin_byte, data):
         """Save data to disk starting at begin_byte from beginning of file.

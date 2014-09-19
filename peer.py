@@ -4,6 +4,7 @@ import math
 import socket
 import struct
 import time
+import sys
 import utilities
 from utilities import BLOCKSIZE, HummusError, KILOBYTE
 from threading import Lock
@@ -45,6 +46,7 @@ class Peer(object):
     MAX_PENDING = 20  # By convention, <20 requests at a time
 
     def __init__(self, manager, ip_address, port, sock=None):
+        print "__init__", manager, ip_address, port, sock  # TESTING
         self._alive_lock = Lock()
         with self._alive_lock:
             self._alive = True
@@ -63,15 +65,18 @@ class Peer(object):
 
         self._pending_requests = []
         for i in xrange(self.manager.num_pieces):
-            self._pending_requests.append([NEEDED] * self._numBlocks(i))
+            self._pending_requests.append([NEEDED] *
+                                          self.manager.numBlocks(i))
 
     def __del__(self):
+        print "__del__"  # Testing
         self.die()
         if self._sock:
             self._sock.close()
 
     def die(self, message=None):
         """Log error message and kill this peer. Thread safe."""
+        print "die()", message  # Testing
         if message:
             print "DIE: " + message
         with self._alive_lock:
@@ -79,11 +84,13 @@ class Peer(object):
 
     def _interestedInPeer(self):
         """Return True if remote has at least one piece that we need"""
+        print "_interestedInPeer"
         return any(self.manager.isPieceNeeded(piece) for piece in
                    self._pieces_remote_serves)
 
     def _getNumPendingRequests(self):
         """Return the number of unfulfilled data requests sent to remote."""
+        print "_getNumPendingRequests"
         count = 0
         for pending_blocks in self._pending_requests:
             count += sum([x for x in pending_blocks if x == REQUESTED])
@@ -96,6 +103,7 @@ class Peer(object):
           PeerError if can't connect or can't shake hands
 
         """
+        print "_connectAndShake"
         if self._sock:
             self._shaken_hands = True
             return
@@ -108,6 +116,7 @@ class Peer(object):
 
     def execute(self):
         """Open connection with remote and download/upload data with them."""
+        print "execute"
 
         self._recv_dispatch = {
             self.CHOKE_MSGID: self.recvChoke,
@@ -125,9 +134,7 @@ class Peer(object):
         except PeerError as e:
             self.die("PE: " + str(e))
             return
-
-        self._sock.settimeout(3)
-
+        # self._sock.settimeout(3)
         self.sendBitfield()
 
         while self.isAlive():
@@ -159,8 +166,10 @@ class Peer(object):
                         chunk += self.recv(1)
                         (msg_id, msg_length) = self.parseMsgType(chunk)
                         self._recv_dispatch[msg_id](msg_length)
-            except socket.timeout:
+            except socket.timeout as e:
                 print "Peer timed out"
+                self.die("PE:" + str(e))
+                return
             except HummusError as e:
                 self.die("PE:" + str(e))
                 return
@@ -175,6 +184,7 @@ class Peer(object):
           PeerError if socket connection is broken
 
         """
+        print "send", repr(data)
         total_sent = 0
         while total_sent < len(data):
             sent = self._sock.send(data[total_sent:])
@@ -195,28 +205,31 @@ class Peer(object):
           PeerError if connection is broken
 
         """
+        sys.stderr.write("Downloading " + str(length) + " bytes")
         chunks = []
         bytes_recd = 0
         while bytes_recd < length:
+            sys.stderr.write("bytes_recd: " + str(bytes_recd) + '\n')
             chunk = self._sock.recv(min(length - bytes_recd, 2048))
             if chunk == '':
                 raise PeerError("".join(["Socket connection with ",
                                 self._peer_id, " broken."]))
-            chunks.append(chunk)
+            chunks += chunk
             bytes_recd = bytes_recd + len(chunk)
+        print ""
         return ''.join(chunks)
 
     def parseMsgType(self, data):
         """Parse data and return (msg_id, msg_length)
- 
+
         Raises:
           PeerError if invalid message type or length
 
         """
+        print "parseMsgType", repr(data)
         if len(data) != 5:
             raise PeerError("Message length more than 5 bytes.")
-
-        (msg_length, msg_id) = struct.unpack('>IB', data[0:4], data[4])
+        (msg_length, msg_id) = struct.unpack('>IB', data)
         if msg_id not in self.VALID_IDS:
             raise PeerError("MSG ID not a valid ID number")
         return (msg_id, msg_length)
@@ -232,6 +245,7 @@ class Peer(object):
           PeerError if handshake response is invalid or nonexistant
 
         """
+        print "shakeHands"
         initiate = utilities.constructHandshake(self.manager.info_hash,
                                                 utilities.SELF_PEER_ID)
         self.send(initiate)
@@ -247,11 +261,13 @@ class Peer(object):
 
     def isAlive(self):
         """Return whether this peer is alive. Thread safe."""
+        print "isAlive"
         with self._alive_lock:
             return self._alive
 
     def isKeepAliveMsg(self, chunk):
         """Return true if chunk binary data is a keep alive message."""
+        print "isKeepAliveMsg", chunk
         if len(chunk) != 4:
             return False
         (data,) = struct.unpack('>I', chunk)
@@ -259,42 +275,50 @@ class Peer(object):
 
     def sendKeepAlive(self):
         """Pack and send keep-alive: <len=0000>"""
+        print "sendKeepAlive"
         chunk = struct.pack('>I', 0)
         self.send(chunk)
 
     def sendChoke(self):
         """Pack and send choke: <len=0001><id=0>"""
+        print "sendChoke"
         chunk = struct.pack('>IB', 1, 0)
         self.send(chunk)
 
     def sendUnchoke(self):
         """Pack and send unchoke: <len=0001><id=1>"""
+        print "sendUnchoke"
         chunk = struct.pack('>IB', 1, 1)
         self.send(chunk)
 
     def sendInterested(self):
         """Pack and send interested: <len=0001><id=2>"""
+        print "sendInterested"
         chunk = struct.pack('>IB', 1, 2)
         self.send(chunk)
 
     def sendNotInterested(self):
         """Pack and send not interested: <len=0001><id=3>"""
+        print "sendNotInterested"
         chunk = struct.pack('>IB', 1, 3)
         self.send(chunk)
 
     def sendHaveMsgs(self):
         """For each piece downloaded, send a have message to remote."""
+        print "sendHaveMsgs"
         completed_pieces = self.manager.getCompletedPieces()
         for piece_id in completed_pieces:
             self.sendHave(piece_id)
 
     def sendHave(self, piece_id):
         """Pack and send have: <len=0005><id=4><piece index>"""
+        print "sendHave", piece_id
         chunk = struct.pack('>IBI', 5, 4, piece_id)
         self.send(chunk)
 
     def sendBitfield(self):
         """Pack and send bitfield: <len=0001+X><id=5><bitfield>"""
+        print "sendBitfield"
         bits = bitstring.BitArray(self.manager.num_pieces)
         for index in self.manager.getCompletedPieces():
             bits[index] = True
@@ -304,12 +328,14 @@ class Peer(object):
 
     def sendPiece(self, index, begin, block):
         """Pack and send piece: <len=0009+X><id=7><index><begin><block>"""
+        print "sendPiece", index, begin, block
         msg = struct.pack('>IB2I', 9 + len(block), 7, index, begin)
         chunk = msg + block
         self.send(chunk)
 
     def _neededBlocks(self, piece):
         """Return list of needed block indices in piece"""
+        print "_neededBlocks", piece
         needed = []
         for i, state in enumerate(self._pending_requests[piece]):
             if state == NEEDED:
@@ -329,6 +355,7 @@ class Peer(object):
           these new requests <= MAX_PENDING allowed requests.
 
         """
+        print "_getNewRequests"
         new_reqs = []
         num_needed = self.MAX_PENDING - self._getNumPendingRequests()
 
@@ -353,11 +380,13 @@ class Peer(object):
 
     def sendRequestMsg(self, index, begin, length):
         """Pack and send request: <len=0013><id=6><index><begin><length>"""
+        print "sendRequestMsg", index, begin, length
         chunk = struct.pack('>IB3I', 13, 6, index, begin, length)
         self.send(chunk)
 
     def sendRequestMsgs(self):
         """Send requests for more blocks, if pending reqs < MAX_PENDING"""
+        print "sendRequestMsgs"
         new_reqs = self._getNewRequests()
         for req in new_reqs:
             piece = req[0]
@@ -369,23 +398,28 @@ class Peer(object):
 
     def recvKeepAlive(self):
         """"keep-alive: <len=0000>"""
+        print "recvKeepAlive"
         # TODO: self._last_msg_time = time.time()
         pass
 
     def recvChoke(self, length=None):
         """Set peer choking to True."""
+        print "recvChoke"
         self._peer_choking = True
 
     def recvUnchoke(self, length=None):
         """Set peer choking to false."""
+        print "recvUnchoke"
         self._peer_choking = False
 
     def recvInterested(self, length=None):
         """Set peer interested to true"""
+        print "recvInterested"
         self._peer_interested = True
 
     def recvNotInterested(self, length=None):
         """Set peer interested to false"""
+        print "recvNotInterested"
         self._peer_interested = False
 
     def recvHave(self, length=None):
@@ -395,6 +429,7 @@ class Peer(object):
           PeerError if have message is illformed or for index out of range.
 
         """
+        print "recvHave"
         if length != 5:
             raise PeerError("\"Have\" message is not length 5.")
 
@@ -406,14 +441,15 @@ class Peer(object):
 
     def recvBitfield(self, length):
         """Parse bitfield and mark pieces as data remote has to serve."""
-        if (length - 1) != self.manager.num_pieces:
-            raise PeerError("\"Bitfield\" length != number of pieces")
+        print "recvBitfield", length
 
         chunk = self.recv(length)
-        bits = bitstring.BitArray(data=chunk)
+        print chunk.encode('hex')
+        bits = bitstring.BitArray(hex=chunk.encode('hex'))
         for index, bit in enumerate(bits):
             if bit:
                 self._pieces_remote_serves.add(index)
+        print "exit"
 
     def recvRequest(self, length=None):
         """Receive request for data and send data to remote.
@@ -427,6 +463,7 @@ class Peer(object):
         Raises:
           PeerError if request is malformed or we don't have requested piece.
         """
+        print "recvRequest", length
         if length != 13:
             raise PeerError("\"Request\" length is not 13.")
 
@@ -460,6 +497,7 @@ class Peer(object):
         Raises:
           PeerError if remote sends none or illformed data
         """
+        print "recvPiece", length
         if length <= 9:
             raise PeerError("Remote did not send any file data.")
         chunk = self.recv(length - 1)
