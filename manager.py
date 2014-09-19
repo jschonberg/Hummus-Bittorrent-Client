@@ -117,20 +117,18 @@ class Manager(object):
              or not self._peer_id or not self.PORT or not self._bytes_left)):
             raise ManagerError("Field for tracker request does not exist")
 
-        info_hash_percencoded = (urllib.quote(self.info_hash))
-        event = ("started" if first_req else "")
-        tracker_req = ''.join([self._tracker_url,
-                              '?info_hash=', info_hash_percencoded,
-                              '&peer_id=', self._peer_id,
-                              '&port=', str(self.PORT),
-                              '&uploaded=', str(self._bytes_uploaded),
-                              '&downloaded=', str(self._bytes_downloaded),
-                              '&left=', str(self._bytes_left),
-                              '&event=', event])
+        tracker_params = { 'info_hash', urllib.quote(self.info_hash),
+                            "peer_id": self._peer_id,
+                            'port', self.PORT,
+                            'uploaded', self._bytes_uploaded,
+                            'downloaded', self._bytes_downloaded,
+                            'left', self._bytes_left,
+                            'event', "started" if first_req else ""
+                            }
         if hasattr(self, '_tracker_id'):
-            tracker_req += ''.join(['&trackerid=', self._tracker_id])
+            tracker_params['trackerid'] = self._tracker_id
 
-        return tracker_req
+        return "%s?%s" % (self._tracker_url, urllib.urlencode(tracker_params))
 
     def _contactTracker(self, request, first_req=False):
         """Make GET call to tracker and return response.
