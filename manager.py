@@ -133,9 +133,6 @@ class Manager(object):
     def _contactTracker(self, request, first_req=False):
         """Make GET call to tracker and return response.
 
-        This function will contact the tracker at no less than
-        self._min_interval second intervals
-
         Args:
           request (str): URL to a tracker with properly formatted params
           first_req (bool): True if this is the first request to this tracker
