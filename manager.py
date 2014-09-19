@@ -17,16 +17,20 @@ MY_IP_ADDRESS = '74.212.183.186'
 
 
 class ManagerError(HummusError):
-    """Thrown in case of Manager class errors. Inherits HummusError.
-
-    Args:
-      msg (str): Human readable string describing the exception.
-
-    Attributes:
-      msg (str): Human readable string describing the exception.
-
-    """
     pass
+
+class FileWrapper(object):
+    def __init__(self, f_path_name, f_len):
+        if not os.path.isfile(f_path_name):
+            # If the file didn't previously exists, create one
+            with open(f_path_name, mode='wb'):
+                pass
+        self.f_obj = open(f_path_name, 'r+b')
+        self.f_path_name = f_path_name
+        self.f_len = f_len
+
+    def __len__(self):
+        return self.f_len
 
 
 class Manager(object):
@@ -42,8 +46,6 @@ class Manager(object):
       MAX_PEERS (int): Maximum number of simoultaneous connections
 
     """
-
-    File = namedtuple('File', 'file_obj, file_path_name, byte_len')
     PORT = 6889
     MAX_PEERS = 30
 
@@ -75,7 +77,7 @@ class Manager(object):
             self.piece_len = metainfo['info']['piece length']
             self._initFiles(metainfo)
 
-        self.total_size = sum([x.byte_len for x in self._files])
+        self.total_size = sum(len(x) for x in self._files)
         self.num_pieces = ((self.total_size / self.piece_len) +
                            (1 if self.total_size % self.piece_len != 0
                             else 0))
@@ -95,9 +97,6 @@ class Manager(object):
         self._pieces_ledger_lock = Lock()
         self._pieces_data = [[]] * self.num_pieces
         self._pieces_data_lock = Lock()
-
-    def __del__(self):
-        pass
 
     def die(self, message=None):
         """Kill this Manager"""
@@ -129,26 +128,21 @@ class Manager(object):
              or not self._peer_id or not self.PORT or not self._bytes_left)):
             raise ManagerError("Field for tracker request does not exist")
 
-        info_hash_percencoded = (urllib.quote(self.info_hash))
-        event = ("started" if first_req else "")
-        tracker_req = ''.join([self._tracker_url,
-                              '?info_hash=', info_hash_percencoded,
-                              '&peer_id=', self._peer_id,
-                              '&port=', str(self.PORT),
-                              '&uploaded=', str(self._bytes_uploaded),
-                              '&downloaded=', str(self._bytes_downloaded),
-                              '&left=', str(self._bytes_left),
-                              '&event=', event])
+        tracker_params = { 'info_hash', urllib.quote(self.info_hash),
+                            "peer_id": self._peer_id,
+                            'port', self.PORT,
+                            'uploaded', self._bytes_uploaded,
+                            'downloaded', self._bytes_downloaded,
+                            'left', self._bytes_left,
+                            'event', "started" if first_req else ""
+                            }
         if hasattr(self, '_tracker_id'):
-            tracker_req += ''.join(['&trackerid=', self._tracker_id])
+            tracker_params['trackerid'] = self._tracker_id
 
-        return tracker_req
+        return "%s?%s" % (self._tracker_url, urllib.urlencode(tracker_params))
 
     def _contactTracker(self, request, first_req=False):
         """Make GET call to tracker and return response.
-
-        This function will contact the tracker at no less than
-        self._min_interval second intervals
 
         Args:
           request (str): URL to a tracker with properly formatted params
@@ -174,27 +168,18 @@ class Manager(object):
           ManagerError if multi or single file mode cannot be determined
 
         """
-        def createFile(f_path_name, f_len):
-            if not os.path.isfile(f_path_name):
-                # If the file didn't previously exists, create one
-                with open(f_path_name, mode='wb'):
-                    pass
-            f_obj = open(f_path_name, 'r+b')
-            f = Manager.File(file_obj=f_obj,
-                             file_path_name=f_path_name,
-                             byte_len=f_len)
-            self._files.append(f)
 
         if "files" in metainfo['info'].keys():  # Multiple file torrent
             for info in metainfo['info']["files"]:
                 f_path_name = self._dest_path + "/".join(info['path'])
                 f_len = info['length']
-                createFile(f_path_name, f_len) 
+                self._files.append(FileWrapper(f_path_name, f_len))
+
         elif "length" in metainfo['info'].keys():  # Single file torrent
             f_path_name = '/'.join([self._dest_path,
                                    metainfo['info']['name']])
             f_len = metainfo['info']['length']
-            createFile(f_path_name, f_len)
+            self._files.append(FileWrapper(f_path_name, f_len))
         else:
             raise ManagerError("Cant determine single or multi file mode")
 
@@ -214,11 +199,14 @@ class Manager(object):
             self._peers = [p for p in self._peers if not p.isAlive()]
             #TODO: For dead peers, don't just remove them but make sure their actively held pieces are marked as free
             self._startNewPeers()
-            request = self._createTrackerReq()
-            response = self._contactTracker(request)
-            self._peer_addresses = self._parsePeers(response)
+            self._peer_addresses = self._update_peers()
             time.sleep(self._min_interval)
             #TODO: When do we kill the manager? When the file is done?
+
+    def _update_peers(self):
+        request = self._createTrackerReq()
+        response = self._contactTracker(request)
+        return self._parsePeers(response)
 
     def _renderInfoHash(self):
         """Return 20-byte SHA1 hash of the value of the info key from the

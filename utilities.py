@@ -8,20 +8,8 @@ SELF_PEER_ID = u'-HU0010-0HyZeTecrY0m'.encode('utf-8')
 
 
 class HummusError(Exception):
-    """Base class for all errors thrown by Hummus.
-
-    Args:
-      msg (str): Human readable string describing the exception.
-
-    Attributes:
-      msg (str): Human readable string describing the exception.
-
-    """
-    def __init__(self, msg):
-        self.msg = msg
-
-    def __str__(self):
-        return self.msg
+    """Base class for all errors thrown by Hummus."""
+    pass
 
 
 def connectToPeer(ip_address, port):
