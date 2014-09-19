@@ -87,9 +87,6 @@ class Manager(object):
         self._pieces_data = [[]] * self.num_pieces
         self._pieces_data_lock = Lock()
 
-    def __del__(self):
-        pass
-
     def die(self, message=None):
         """Kill this Manager"""
         # TODO Send tracker "Stopped" Put in die()?
