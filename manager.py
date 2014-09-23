@@ -5,14 +5,14 @@ import logging
 import hashlib
 import struct
 import math
-# import ipgetter
+import ipgetter
 import time
 from peer import Peer
 from bencode import bencode, bdecode
 from utilities import HummusError, SELF_PEER_ID, BLOCKSIZE
 from threading import Lock, Thread
 
-MY_IP_ADDRESS = '104.162.109.149'
+# MY_IP_ADDRESS = '104.162.109.149'
 
 
 class ManagerError(HummusError):
@@ -101,7 +101,6 @@ class Manager(object):
         for p in xrange(self.num_pieces):
             self._pieces_data.extend([[None] * self.bytesInBlock(p, b) for
                                      b in xrange(self.numBlocks(p))])
-        print self._pieces_data
         self._pieces_data_lock = Lock()
 
     def die(self, message=None):
@@ -248,8 +247,8 @@ class Manager(object):
           All in network (big endian) notation.
 
         """
-        # myip = ipgetter.myip()
-        myip = MY_IP_ADDRESS  # TODO: Hardcoded for testing purposes
+        myip = ipgetter.myip()
+        # myip = MY_IP_ADDRESS  # TODO: Hardcoded for testing purposes
         peers = []
         if 'peers' not in response.keys():
             return peers
