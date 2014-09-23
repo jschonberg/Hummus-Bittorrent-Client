@@ -12,11 +12,12 @@ from bencode import bencode, bdecode
 from utilities import HummusError, SELF_PEER_ID, BLOCKSIZE
 from threading import Lock, Thread
 
-MY_IP_ADDRESS = '74.212.183.186'
+MY_IP_ADDRESS = '104.162.109.149'
 
 
 class ManagerError(HummusError):
     pass
+
 
 class FileWrapper(object):
     def __init__(self, f_path_name, f_len):
@@ -94,7 +95,7 @@ class Manager(object):
 
         self._pieces_ledger = ["free"] * self.num_pieces
         self._pieces_ledger_lock = Lock()
-        self._pieces_data = [[]] * self.num_pieces
+        self._pieces_data = [[None]*BLOCKSIZE] * self.num_pieces
         self._pieces_data_lock = Lock()
 
     def die(self, message=None):
@@ -276,7 +277,7 @@ class Manager(object):
             extra_bytes = self.total_size % self.piece_len
             return int(math.ceil(extra_bytes / float(BLOCKSIZE)))
 
-    def bytesinBlock(self, piece_index, block_index):
+    def bytesInBlock(self, piece_index, block_index):
         """Return the number of bytes in the block in piece.
 
         Raises:
@@ -287,12 +288,12 @@ class Manager(object):
             raise ManagerError("Piece index is out of range.")
         if block_index < 0 or block_index > self.numBlocks(piece_index):
             raise ManagerError("Block index is out of range.")
-        if (piece_index != (self.num_pieces - 1) and
-            block_index != (self.numBlocks(piece_index) - 1)):
-            return BLOCKSIZE
-        else:
+        if (piece_index == (self.num_pieces - 1) and
+                block_index == (self.numBlocks(piece_index) - 1)):
             size = self.total_size % BLOCKSIZE
             return (size if size != 0 else BLOCKSIZE)
+        else:
+            return BLOCKSIZE
 
     def blocksEncompassed(self, begin, length):
         """Return list of blocks fully encompassed by range(begin,len).
@@ -308,27 +309,29 @@ class Manager(object):
         for p_index in xrange(self.num_pieces):
             byte = p_index * self.piece_len
             for b_index in xrange(self.numBlocks(p_index)):
-                byte += self.bytesInBlock(p_index, b_index)
                 if byte >= begin and byte < (begin + length):
                     blocks.append((p_index, b_index))
+                byte += self.bytesInBlock(p_index, b_index)
         return blocks
 
-    def isPieceNeeded(self, piece):
+    def pieceStatus(self, piece):
         """Return True if piece is not alredy downloaded and not active."""
         if piece < 0 or piece >= self.num_pieces:
             raise ManagerError("Piece index out of range in isPieceNeeded")
         with self._pieces_ledger_lock:
-            return self._pieces_ledger[piece] == "free"
+            return self._pieces_ledger[piece]
 
     def getCompletedPieces(self):
         """Returns a set of piece indices that are completely downloaded."""
         with self._pieces_ledger_lock:
-            return set([x for x in self._pieces_ledger if x == "downloaded"])
+            return set([i for i, x in enumerate(self._pieces_ledger)
+                       if x == "downloaded"])
 
     def getNeededPieces(self):
         """Return the set of piece_indices not downloaded and not active"""
         with self._pieces_ledger_lock:
-            return set([x for x in self._pieces_ledger if x == "free"])
+            return set([i for i, x in enumerate(self._pieces_ledger)
+                       if x == "free"])
 
     def activelyHeldPieces(self, peer):
         """Return a set of piece indices held by peer.
@@ -338,7 +341,8 @@ class Manager(object):
 
         """
         with self._pieces_ledger_lock:
-            return set([x for x in self._pieces_ledger if x == peer.ID])
+            return set([i for i, x in enumerate(self._pieces_ledger)
+                       if x == peer.ID])
 
     def makeActive(self, peer, piece):
         """Set piece as actively held by peer.
@@ -352,7 +356,7 @@ class Manager(object):
             return False
         with self._pieces_ledger_lock:
             if self._pieces_ledger[piece] == "free":
-                self._pieces_ledger[piece] == peer.ID
+                self._pieces_ledger[piece] = peer.ID
                 return True
         return False
 
@@ -374,16 +378,50 @@ class Manager(object):
         print "TRYING TO READ: ", piece_index, begin_offset, length
         return [0]*length
 
-    def saveData(self, begin_byte, data):
-        """Save data to disk starting at begin_byte from beginning of file.
+    def _allDataSaved(self, piece):
+        """Return true if piece has all of its bytes saved in buffer"""
+        with self._pieces_data_lock:
+            for p in self._pieces_data[piece]:
+                if p == None:
+                    return False
+        return True
+
+    def saveData(self, piece, offset, data):
+        """Save data to disk starting at offset from beginning of piece.
 
         Buffer saved data until a full piece is "saved". Upon receiving all
         bytes in a piece, checksum the data, and if legitimate, save data
-        to disk. At that point mark piece as "DOWNLOADED" instead of active
-        or free. Will truncate data if it runs off the end of the file.
+        to disk. Will truncate data if it runs off the end of the file.
 
         Raises:
           MangerError if begin byte is illigitimate
 
         """
-        pass
+        print "saveData: ", piece, offset
+        #write the data into a buffer
+        with self._pieces_data_lock:
+            for i, byte in enumerate(data):
+                self._pieces_data[piece][offset + i] = byte
+        #check to see if that piece is fully downloaded
+        mark_ledger = False
+        if self._allDataSaved(piece):
+            #TODO: checksum the data
+            #if checksum comes out ok:
+                #write the data
+                #clear the buffer
+            mark_ledger = True
+        if mark_ledger:
+            with self._pieces_ledger_lock:
+                self._pieces_ledger[piece] = "downloaded"
+
+    # def _write(self, piece):
+    #     """Write data in piece from buffer to files on disk"""
+
+    #     with self._files_lock:
+    #         for f in self._files:
+    #             if p_start >= f_start AND p_start < f_start + f.f_len:
+    #                 f.f_obj.seek(p_start - f_start)
+    #                 amt = min(p_len, f.f_len + f_start - p_start)
+    #                 with self._pieces_data_lock:
+    #                     data = "".join(x for x in )
+    #                 f.f_obj.write()

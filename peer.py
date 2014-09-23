@@ -76,8 +76,11 @@ class Peer(object):
     def _interestedInPeer(self):
         """Return True if remote has at least one piece that we need"""
         print "_interestedInPeer"
-        return any(self.manager.isPieceNeeded(piece) for piece in
-                   self._pieces_remote_serves)
+        for piece in self._pieces_remote_serves:
+            if (self.manager.pieceStatus(piece) == "free" or
+                    self.manager.pieceStatus(piece) == self.ID):
+                return True
+        return False
 
     def _getNumPendingRequests(self):
         """Return the number of unfulfilled data requests sent to remote."""
@@ -125,38 +128,36 @@ class Peer(object):
         except PeerError as e:
             self.die("PE: " + str(e))
             return
-        # self._sock.settimeout(3)
+        self._sock.settimeout(3)
         self.sendBitfield()
 
         while self.isAlive():
-            self.sendHaveMsgs()
-
-            if self._am_choking:
-                self.sendUnchoke()
-                self._am_choking = False
-
-            if self._interestedInPeer():
-                if not self._am_interested:
-                    self.sendInterested()
-                    self._am_interested = True
-            else:
-                if self._am_interested:
-                    self.sendNotInterested()
-                    self._am_interested = False
-
-            if not self._peer_choking and self._am_interested:
-                self.sendRequestMsgs()
-
             try:
-                max_msgs = 50
-                for _ in range(max_msgs):
-                    chunk = self.recv(4)
-                    if self.isKeepAliveMsg(chunk):
-                        self.recvKeepAlive()
-                    else:
-                        chunk += self.recv(1)
-                        (msg_id, msg_length) = self.parseMsgType(chunk)
-                        self._recv_dispatch[msg_id](msg_length)
+                self.sendHaveMsgs()
+
+                if self._am_choking:
+                    self.sendUnchoke()
+                    self._am_choking = False
+
+                if self._interestedInPeer():
+                    if not self._am_interested:
+                        self.sendInterested()
+                        self._am_interested = True
+                else:
+                    if self._am_interested:
+                        self.sendNotInterested()
+                        self._am_interested = False
+
+                if not self._peer_choking and self._am_interested:
+                    self.sendRequestMsgs()
+
+                chunk = self.recv(4)
+                if self.isKeepAliveMsg(chunk):
+                    self.recvKeepAlive()
+                else:
+                    chunk += self.recv(1)
+                    (msg_id, msg_length) = self.parseMsgType(chunk)
+                    self._recv_dispatch[msg_id](msg_length)
             except socket.timeout as e:
                 print "Peer timed out"
                 self.die("PE:" + str(e))
@@ -165,8 +166,8 @@ class Peer(object):
                 self.die("PE:" + str(e))
                 return
 
-            if self.isAlive():
-                self.sendKeepAlive()
+            # if self.isAlive():
+            #     self.sendKeepAlive()
 
     def send(self, data):
         """Send entirety of data to remote peer.
@@ -200,7 +201,6 @@ class Peer(object):
         chunks = []
         bytes_recd = 0
         while bytes_recd < length:
-            sys.stderr.write("bytes_recd: " + str(bytes_recd) + '\n')
             chunk = self._sock.recv(min(length - bytes_recd, 2048))
             if chunk == '':
                 raise PeerError("".join(["Socket connection with ",
@@ -361,12 +361,11 @@ class Peer(object):
             if len(possibles) == 0:
                 break
             new_piece = possibles.pop()
-            success = self.manager.makeActive(new_piece)
+            success = self.manager.makeActive(self, new_piece)
             if not success:
                 raise PeerError("Could not make piece active.")
-            new_reqs += [((new_piece, x) for x in
-                          self._neededBlocks(new_piece))]
-
+            new_reqs.extend((new_piece, x) for x in
+                            self._neededBlocks(new_piece))
         return new_reqs[:self.MAX_PENDING]
 
     def sendRequestMsg(self, index, begin, length):
@@ -382,6 +381,7 @@ class Peer(object):
         for req in new_reqs:
             piece = req[0]
             block = req[1]
+            print "BYTESINBLOCK: ", self.manager.bytesInBlock(piece, block)
             chunk = struct.pack('>IB3I', 13, 6, piece, block * BLOCKSIZE,
                                 self.manager.bytesInBlock(piece, block))
             self.send(chunk)
@@ -435,12 +435,10 @@ class Peer(object):
         print "recvBitfield", length
 
         chunk = self.recv(length - 1)
-        print "In recvBitfield, length: ", len(chunk), "data: ", repr(chunk)
         bits = bitstring.BitArray(hex=chunk.encode('hex'))
         for index, bit in enumerate(bits):
             if bit:
                 self._pieces_remote_serves.add(index)
-        print "exit"
 
     def recvRequest(self, length=None):
         """Receive request for data and send data to remote.
@@ -470,7 +468,7 @@ class Peer(object):
                             "interested.")
         if index not in self.manager.getCompletedPieces():
             raise PeerError("Don't have piece requested by remote.")
-        if index >= self.master_record.numPieces():
+        if index >= self.manager.num_pieces:
             raise PeerError("Index from Request is greater than number of "
                             "pieces")
 
@@ -496,11 +494,11 @@ class Peer(object):
         (index, offset, data) = struct.unpack(encoding, chunk)
 
         if not self._am_interested:
-            print "Ignoring piece message because uninterested"
+            print "Ignoring piece %s message because uninterested" % index
             return
 
+        self.manager.saveData(index, offset, data)
         begin_byte = self.manager.piece_len * index + offset
-        self.master_record.saveData(begin_byte, data)
         blocks = self.manager.blocksEncompassed(begin_byte, len(data))
         for piece, block in blocks:
-            self._pending_requests[piece][block] == DOWNLOADED
+            self._pending_requests[piece][block] = DOWNLOADED
