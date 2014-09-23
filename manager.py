@@ -75,9 +75,11 @@ class Manager(object):
             metainfo = bdecode(f.read())
             self._tracker_url = metainfo['announce']
             self.piece_len = metainfo['info']['piece length']
+            self._piece_hashes = metainfo['info']['pieces']
             self._initFiles(metainfo)
 
         self.total_size = sum(len(x) for x in self._files)
+        print "TOTAL: ", self.total_size
         self.num_pieces = ((self.total_size / self.piece_len) +
                            (1 if self.total_size % self.piece_len != 0
                             else 0))
@@ -95,7 +97,11 @@ class Manager(object):
 
         self._pieces_ledger = ["free"] * self.num_pieces
         self._pieces_ledger_lock = Lock()
-        self._pieces_data = [[None]*BLOCKSIZE] * self.num_pieces
+        self._pieces_data = []
+        for p in xrange(self.num_pieces):
+            self._pieces_data.extend([[None] * self.bytesInBlock(p, b) for
+                                     b in xrange(self.numBlocks(p))])
+        print self._pieces_data
         self._pieces_data_lock = Lock()
 
     def die(self, message=None):
@@ -402,11 +408,11 @@ class Manager(object):
             for i, byte in enumerate(data):
                 self._pieces_data[piece][offset + i] = byte
         if self._allDataSaved(piece):
-            #TODO: checksum the data
-            #TODO: if checksum comes out ok:
             with self._pieces_data_lock:
                 data = "".join(byte for byte in self._pieces_data[piece])
                 self._pieces_data[piece] = []  # Clear out data from RAM
+            checksum = hashlib.sha1(data).digest()
+            assert(checksum == self._piece_hashes[20*piece:20*piece+20])
             self._write(piece, data)
             with self._pieces_ledger_lock:
                 self._pieces_ledger[piece] = "downloaded"
@@ -439,7 +445,7 @@ class Manager(object):
             offset = s[1]
             num_bytes = s[2]
             with self._files_lock:
-                self._files[f_idx].seek(offset)
-                self._files[f_idx].write(data[written:num_bytes])
+                self._files[f_idx].f_obj.seek(offset)
+                self._files[f_idx].f_obj.write(data[written:num_bytes])
             written += num_bytes
         assert written == len(data)
