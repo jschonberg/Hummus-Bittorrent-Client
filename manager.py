@@ -398,30 +398,48 @@ class Manager(object):
 
         """
         print "saveData: ", piece, offset
-        #write the data into a buffer
         with self._pieces_data_lock:
             for i, byte in enumerate(data):
                 self._pieces_data[piece][offset + i] = byte
-        #check to see if that piece is fully downloaded
-        mark_ledger = False
         if self._allDataSaved(piece):
             #TODO: checksum the data
-            #if checksum comes out ok:
-                #write the data
-                #clear the buffer
-            mark_ledger = True
-        if mark_ledger:
+            #TODO: if checksum comes out ok:
+            with self._pieces_data_lock:
+                data = "".join(byte for byte in self._pieces_data[piece])
+                self._pieces_data[piece] = []  # Clear out data from RAM
+            self._write(piece, data)
             with self._pieces_ledger_lock:
                 self._pieces_ledger[piece] = "downloaded"
 
-    # def _write(self, piece):
-    #     """Write data in piece from buffer to files on disk"""
+    def _findFileSplits(self, piece):
+        """Return list(file index, offset, num_bytes) from piece in a file"""
+        splices = []
+        p_ptr = piece * self.piece_len
+        p_len = sum(self.bytesInBlock(piece, x) for x in
+                    xrange(self.numBlocks(piece)))
+        f_ptr = 0
+        with self._files_lock:
+            for i, f in enumerate(self._files):
+                if p_ptr >= f_ptr and p_ptr < f_ptr + f.f_len:
+                    amt = min(p_len, f.f_len + f_ptr - p_ptr)
+                    splices.append((i, p_ptr - f_ptr, amt))
+                    if amt == p_len:
+                        break
+                    p_ptr += amt
+                    p_len -= amt
+                f_ptr += f.f_len
+        return splices
 
-    #     with self._files_lock:
-    #         for f in self._files:
-    #             if p_start >= f_start AND p_start < f_start + f.f_len:
-    #                 f.f_obj.seek(p_start - f_start)
-    #                 amt = min(p_len, f.f_len + f_start - p_start)
-    #                 with self._pieces_data_lock:
-    #                     data = "".join(x for x in )
-    #                 f.f_obj.write()
+    def _write(self, piece, data):
+        """Write data in piece from buffer to files on disk"""
+        splits = self._findFileSplits(piece)
+        written = 0
+        for s in splits:
+            f_idx = s[0]
+            offset = s[1]
+            num_bytes = s[2]
+            with self._files_lock:
+                self._files[f_idx].seek(offset)
+                self._files[f_idx].write(data[written:num_bytes])
+            written += num_bytes
+        assert written == len(data)
